@@ -413,7 +413,7 @@ export const LANDING_HTML = `<!doctype html>
     <section>
       <h2><span class="num">02</span>What allbets does</h2>
       <p>
-        One MCP endpoint over <strong>Streamable HTTP</strong>. Three tools. Read-only. Public APIs only. No keys at runtime.
+        One MCP endpoint over <strong>Streamable HTTP</strong>. Five tools. Read-only. Public APIs only. No keys at runtime.
       </p>
 
       <div class="feature-row">
@@ -520,7 +520,7 @@ export const LANDING_HTML = `<!doctype html>
     </section>
 
     <footer>
-      <div>built at agents day lisbon · 2026-05-01 · sean tierney + jax</div>
+      <div>built at agents day lisbon · 2026-05-01 · marc johnson + sean tierney + jax</div>
       <div>
         <a href="https://github.com/scrollinondubs/allbets" target="_blank" rel="noopener">github</a>
         &nbsp;·&nbsp;
