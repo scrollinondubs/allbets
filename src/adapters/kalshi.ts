@@ -21,6 +21,18 @@ interface KalshiMarket {
   status?: string;
 }
 
+interface KalshiEvent {
+  event_ticker: string;
+  series_ticker?: string;
+  title?: string;
+  markets?: KalshiMarket[];
+}
+
+interface KalshiEventsResponse {
+  events?: KalshiEvent[];
+  cursor?: string;
+}
+
 interface KalshiMarketsResponse {
   markets?: KalshiMarket[];
   cursor?: string;
@@ -28,9 +40,11 @@ interface KalshiMarketsResponse {
 
 const PARLAY_PREFIXES = ["KXMVE"];
 
-function isParlay(ticker: string, marketType?: string): boolean {
+function isParlay(ticker: string, marketType?: string, seriesTicker?: string): boolean {
   if (marketType === "multi_leg") return true;
-  return PARLAY_PREFIXES.some((p) => ticker.startsWith(p));
+  if (PARLAY_PREFIXES.some((p) => ticker.startsWith(p))) return true;
+  if (seriesTicker && PARLAY_PREFIXES.some((p) => seriesTicker.startsWith(p))) return true;
+  return false;
 }
 
 function n(v: string | number | undefined): number | undefined {
@@ -60,7 +74,7 @@ function statusToResolution(status?: string): ResolutionStatus {
   }
 }
 
-function toNormalized(m: KalshiMarket): NormalizedMarket {
+function toNormalized(m: KalshiMarket, eventTitle?: string): NormalizedMarket {
   const yesProb = clampProbability(n(m.last_price_dollars));
   const noProb = Math.max(0, 1 - yesProb);
   const parlay = isParlay(m.ticker, m.market_type);
@@ -69,6 +83,7 @@ function toNormalized(m: KalshiMarket): NormalizedMarket {
     venue: "kalshi",
     venue_market_id: m.ticker,
     event_id: m.event_ticker,
+    event_question: eventTitle,
     question: m.title,
     description: m.subtitle,
     outcomes: [
@@ -102,29 +117,38 @@ function toNormalized(m: KalshiMarket): NormalizedMarket {
   };
 }
 
-async function pageNonParlay(
-  baseUrl: URL,
-  needed: number,
-  maxPages = 5,
-): Promise<KalshiMarket[]> {
-  const out: KalshiMarket[] = [];
+async function fetchEventsWithMarkets(maxEvents = 200): Promise<KalshiEvent[]> {
+  const out: KalshiEvent[] = [];
   let cursor: string | undefined;
-  for (let page = 0; page < maxPages; page++) {
-    const url = new URL(baseUrl.toString());
+  for (let page = 0; page < 4; page++) {
+    const url = new URL(`${KALSHI_BASE}/events`);
+    url.searchParams.set("status", "open");
     url.searchParams.set("limit", "200");
+    url.searchParams.set("with_nested_markets", "true");
     if (cursor) url.searchParams.set("cursor", cursor);
     const res = await fetch(url);
     if (!res.ok) break;
-    const json = (await res.json()) as KalshiMarketsResponse;
-    const markets = json.markets ?? [];
-    for (const m of markets) {
-      if (!isParlay(m.ticker, m.market_type)) {
-        out.push(m);
-        if (out.length >= needed) return out;
-      }
+    const json = (await res.json()) as KalshiEventsResponse;
+    const events = json.events ?? [];
+    for (const e of events) {
+      if (e.series_ticker && PARLAY_PREFIXES.some((p) => e.series_ticker!.startsWith(p))) continue;
+      if (e.event_ticker && PARLAY_PREFIXES.some((p) => e.event_ticker.startsWith(p))) continue;
+      out.push(e);
+      if (out.length >= maxEvents) return out;
     }
-    if (!json.cursor || json.cursor === cursor || markets.length === 0) break;
+    if (!json.cursor || json.cursor === cursor || events.length === 0) break;
     cursor = json.cursor;
+  }
+  return out;
+}
+
+function flattenMarkets(events: KalshiEvent[]): Array<{ market: KalshiMarket; eventTitle?: string }> {
+  const out: Array<{ market: KalshiMarket; eventTitle?: string }> = [];
+  for (const e of events) {
+    for (const m of e.markets ?? []) {
+      if (isParlay(m.ticker, m.market_type, e.series_ticker)) continue;
+      out.push({ market: m, eventTitle: e.title });
+    }
   }
   return out;
 }
@@ -133,16 +157,23 @@ export class KalshiAdapter implements VenueAdapter {
   readonly venue = "kalshi" as const;
 
   async searchMarkets(query: string, limit = 10): Promise<NormalizedMarket[]> {
-    const url = new URL(`${KALSHI_BASE}/markets`);
-    url.searchParams.set("status", "open");
-    const accumulated = await pageNonParlay(url, limit * 4, 5);
+    const events = await fetchEventsWithMarkets(200);
+    const flat = flattenMarkets(events);
     const q = query.toLowerCase();
-    const filtered = accumulated.filter(
-      (m) =>
-        m.title.toLowerCase().includes(q) ||
-        (m.subtitle ?? "").toLowerCase().includes(q),
-    );
-    return filtered.slice(0, limit).map(toNormalized);
+    const tokens = q.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 2);
+    if (tokens.length === 0) return flat.slice(0, limit).map((x) => toNormalized(x.market, x.eventTitle));
+
+    const scored = flat.map((x) => {
+      const haystack = `${x.market.title ?? ""} ${x.market.subtitle ?? ""} ${x.eventTitle ?? ""}`.toLowerCase();
+      let score = 0;
+      for (const t of tokens) if (haystack.includes(t)) score += 1;
+      return { x, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored
+      .filter((s) => s.score > 0)
+      .slice(0, limit)
+      .map((s) => toNormalized(s.x.market, s.x.eventTitle));
   }
 
   async getMarket(venueMarketId: string): Promise<NormalizedMarket | null> {
@@ -156,9 +187,8 @@ export class KalshiAdapter implements VenueAdapter {
   }
 
   async listActive(limit = 25): Promise<NormalizedMarket[]> {
-    const url = new URL(`${KALSHI_BASE}/markets`);
-    url.searchParams.set("status", "open");
-    const accumulated = await pageNonParlay(url, limit, 5);
-    return accumulated.slice(0, limit).map(toNormalized);
+    const events = await fetchEventsWithMarkets(200);
+    const flat = flattenMarkets(events);
+    return flat.slice(0, limit).map((x) => toNormalized(x.market, x.eventTitle));
   }
 }
