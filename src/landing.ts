@@ -293,12 +293,17 @@ export const LANDING_HTML = `<!doctype html>
 
     .feature-row .body { color: var(--text); }
 
+    .code-wrap {
+      position: relative;
+      margin: 20px 0;
+    }
     pre.code {
       background: var(--bg-elevated);
       border: 1px solid var(--rule);
       border-left: 2px solid var(--accent);
       padding: 18px 20px;
-      margin: 20px 0;
+      padding-right: 56px;
+      margin: 0;
       overflow-x: auto;
       font-family: var(--mono);
       font-size: 13px;
@@ -308,6 +313,45 @@ export const LANDING_HTML = `<!doctype html>
     pre.code .c { color: var(--text-muted); }
     pre.code .k { color: var(--accent); }
     pre.code .s { color: var(--warn); }
+
+    .copy-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      background: var(--bg);
+      border: 1px solid var(--rule-strong);
+      color: var(--text-muted);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .copy-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    .copy-btn[data-state="copied"] {
+      color: var(--accent);
+      border-color: var(--accent);
+      background: rgba(95, 255, 95, 0.08);
+    }
+    .copy-btn .copy-icon-default::before {
+      content: "⎘";
+      font-size: 18px;
+    }
+    .copy-btn .copy-icon-done::before {
+      content: "✓";
+      font-size: 16px;
+    }
+    .copy-btn[data-state="copied"] .copy-icon-default { display: none; }
+    .copy-btn[data-state="idle"] .copy-icon-done { display: none; }
 
     .badge-demo {
       display: inline-flex;
@@ -463,7 +507,9 @@ export const LANDING_HTML = `<!doctype html>
       <h2><span class="num">04</span>Try it</h2>
       <p>The MCP endpoint is live now at <strong>https://allbets.dev/mcp</strong>. JSON-RPC 2.0 over HTTP POST.</p>
 
-      <pre class="code"><span class="c"># list tools</span>
+      <div class="code-wrap" data-copy="# list tools&#10;curl -X POST https://allbets.dev/mcp \\&#10;  -H 'Content-Type: application/json' \\&#10;  -d '{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;tools/list&quot;}'&#10;&#10;# discover what is tradable on a hypothesis&#10;curl -X POST https://allbets.dev/mcp \\&#10;  -H 'Content-Type: application/json' \\&#10;  -d '{&#10;    &quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;tools/call&quot;,&#10;    &quot;params&quot;:{&#10;      &quot;name&quot;:&quot;pm_discover&quot;,&#10;      &quot;arguments&quot;:{&#10;        &quot;hypothesis&quot;:&quot;Powell cuts rates in June&quot;,&#10;        &quot;jurisdiction&quot;:&quot;non_us&quot;&#10;      }&#10;    }&#10;  }'">
+        <button class="copy-btn" data-state="idle" aria-label="Copy code"><span class="copy-icon-default"></span><span class="copy-icon-done"></span></button>
+        <pre class="code"><span class="c"># list tools</span>
 <span class="k">curl</span> -X POST https://allbets.dev/mcp \\
   -H <span class="s">"Content-Type: application/json"</span> \\
   -d <span class="s">'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'</span>
@@ -481,6 +527,7 @@ export const LANDING_HTML = `<!doctype html>
       }
     }
   }'</span></pre>
+      </div>
 
       <p class="muted" style="margin-top: 24px;">
         <span class="badge-demo">Live</span>
@@ -491,10 +538,47 @@ export const LANDING_HTML = `<!doctype html>
     <hr class="rule" />
 
     <section>
-      <h2><span class="num">05</span>Connect from Claude Desktop</h2>
+      <h2><span class="num">05</span>Connect from Claude Code</h2>
+      <p>Claude Code (the terminal-native agent) speaks HTTP MCP transport directly &mdash; no shim. Add to your project&apos;s <code>.mcp.json</code> at the repo root:</p>
+
+      <div class="code-wrap" data-copy='{
+  &quot;mcpServers&quot;: {
+    &quot;allbets&quot;: {
+      &quot;type&quot;: &quot;http&quot;,
+      &quot;url&quot;: &quot;https://allbets.dev/mcp&quot;
+    }
+  }
+}'>
+        <button class="copy-btn" data-state="idle" aria-label="Copy code"><span class="copy-icon-default"></span><span class="copy-icon-done"></span></button>
+        <pre class="code">{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"allbets"</span>: {
+      <span class="k">"type"</span>: <span class="s">"http"</span>,
+      <span class="k">"url"</span>: <span class="s">"https://allbets.dev/mcp"</span>
+    }
+  }
+}</pre>
+      </div>
+
+      <p class="muted">Restart your Claude Code session. The <code>pm_discover</code>, <code>pm_quote</code>, and <code>pm_disputes_active</code> tools will appear in the agent&apos;s tool list. Cursor and other HTTP-native MCP clients use the same shape.</p>
+    </section>
+
+    <hr class="rule" />
+
+    <section>
+      <h2><span class="num">06</span>Connect from Claude Desktop</h2>
       <p>Claude Desktop only speaks stdio natively, so we bridge through <code>mcp-remote</code>. Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
 
-      <pre class="code">{
+      <div class="code-wrap" data-copy='{
+  &quot;mcpServers&quot;: {
+    &quot;allbets&quot;: {
+      &quot;command&quot;: &quot;npx&quot;,
+      &quot;args&quot;: [&quot;-y&quot;, &quot;mcp-remote@latest&quot;, &quot;https://allbets.dev/mcp&quot;]
+    }
+  }
+}'>
+        <button class="copy-btn" data-state="idle" aria-label="Copy code"><span class="copy-icon-default"></span><span class="copy-icon-done"></span></button>
+        <pre class="code">{
   <span class="k">"mcpServers"</span>: {
     <span class="k">"allbets"</span>: {
       <span class="k">"command"</span>: <span class="s">"npx"</span>,
@@ -502,15 +586,15 @@ export const LANDING_HTML = `<!doctype html>
     }
   }
 }</pre>
+      </div>
 
       <p class="muted">Restart Claude Desktop. Ask: &ldquo;What does the market think about a Fed rate cut in June?&rdquo;</p>
-      <p class="muted"><strong>Cursor / Claude Code / any HTTP-native MCP client</strong> can hit <code>https://allbets.dev/mcp</code> directly without the shim — the proxy is a Claude Desktop limitation, not a server one.</p>
     </section>
 
     <hr class="rule" />
 
     <section>
-      <h2><span class="num">06</span>The code</h2>
+      <h2><span class="num">07</span>The code</h2>
       <p>
         Open-source under MIT at <a href="https://github.com/scrollinondubs/allbets" style="color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent-dim);" target="_blank" rel="noopener">github.com/scrollinondubs/allbets</a>. TypeScript. Cloudflare Workers + Hono. ~600 lines including all three adapters.
       </p>
@@ -548,6 +632,38 @@ export const LANDING_HTML = `<!doctype html>
         setTimeout(tick, 32 + Math.random() * 24);
       }
       setTimeout(tick, 250);
+    })();
+
+    (function() {
+      var wraps = document.querySelectorAll(".code-wrap");
+      wraps.forEach(function (wrap) {
+        var btn = wrap.querySelector(".copy-btn");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+          var text = wrap.getAttribute("data-copy") || "";
+          var done = function () {
+            btn.setAttribute("data-state", "copied");
+            setTimeout(function () { btn.setAttribute("data-state", "idle"); }, 1400);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done, function () {
+              fallback(text); done();
+            });
+          } else {
+            fallback(text); done();
+          }
+        });
+      });
+      function fallback(text) {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta);
+      }
     })();
   </script>
 </body>
