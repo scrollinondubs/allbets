@@ -106,8 +106,12 @@ app.post("/mcp", async (c) => {
         const name = params.name as string;
         const args = (params.arguments as Record<string, unknown>) ?? {};
         const { value, isError } = await runTool(name, args, c.env);
+        const imageBlocks = await collectImageBlocks(value);
         return respond({
-          content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+          content: [
+            { type: "text", text: JSON.stringify(value, null, 2) },
+            ...imageBlocks,
+          ],
           isError,
         });
       }
@@ -124,6 +128,72 @@ app.post("/mcp", async (c) => {
     return fail(-32603, err instanceof Error ? err.message : String(err));
   }
 });
+
+// Walk an arbitrary tool-result value, collect image_url strings, fetch each
+// URL, base64-encode, return as MCP `image` content blocks. This is what
+// makes inline image rendering work in Claude Desktop / Cursor / any MCP
+// client that follows the spec — text content blocks containing image URLs
+// are rendered as text, only `{ type: "image", data, mimeType }` blocks
+// render inline.
+async function collectImageBlocks(
+  value: unknown,
+): Promise<Array<{ type: "image"; data: string; mimeType: string }>> {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.image_url === "string" && !seen.has(obj.image_url)) {
+      seen.add(obj.image_url);
+      urls.push(obj.image_url);
+    }
+    for (const k of Object.keys(obj)) {
+      if (k === "raw") continue; // skip the raw venue payload
+      walk(obj[k]);
+    }
+  };
+  walk(value);
+  if (urls.length === 0) return [];
+
+  const fetched = await Promise.allSettled(
+    urls.map(async (url) => {
+      // skip data: URLs — already base64
+      if (url.startsWith("data:")) {
+        const match = url.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) return null;
+        return { data: match[2]!, mimeType: match[1]! };
+      }
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+      if (!res.ok) return null;
+      const buf = await res.arrayBuffer();
+      const b64 = arrayBufferToBase64(buf);
+      const mimeType = res.headers.get("content-type") ?? "image/png";
+      return { data: b64, mimeType: mimeType.split(";")[0]!.trim() };
+    }),
+  );
+
+  const blocks: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  for (const r of fetched) {
+    if (r.status === "fulfilled" && r.value) {
+      blocks.push({ type: "image", ...r.value });
+    }
+  }
+  return blocks;
+}
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
 
 app.notFound((c) => c.json({ error: "not_found", path: c.req.path }, 404));
 
