@@ -71,6 +71,8 @@ export const NormalizedMarketSchema = z.object({
   raw_url: z.string().url().optional(),
   is_affiliate_link: z.boolean().optional(),
   affiliate_disclosure: z.string().optional(),
+  image_url: z.string().url().optional(),
+  image_prompt: z.string().optional(),
   raw: z.unknown().optional(),
 });
 
