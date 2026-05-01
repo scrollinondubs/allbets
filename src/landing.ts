@@ -413,7 +413,7 @@ export const LANDING_HTML = `<!doctype html>
     <section>
       <h2><span class="num">02</span>What allbets does</h2>
       <p>
-        One MCP endpoint over <strong>Streamable HTTP</strong>. Three tools. Read-only. Public APIs only. No keys at runtime.
+        One MCP endpoint over <strong>Streamable HTTP</strong>. Five tools. Read-only. Public APIs only. No keys at runtime.
       </p>
 
       <div class="feature-row">
@@ -492,20 +492,19 @@ export const LANDING_HTML = `<!doctype html>
 
     <section>
       <h2><span class="num">05</span>Connect from Claude Desktop</h2>
-      <p>Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
+      <p>Claude Desktop only speaks stdio natively, so we bridge through <code>mcp-remote</code>. Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
 
       <pre class="code">{
   <span class="k">"mcpServers"</span>: {
     <span class="k">"allbets"</span>: {
-      <span class="k">"transport"</span>: {
-        <span class="k">"type"</span>: <span class="s">"streamable-http"</span>,
-        <span class="k">"url"</span>: <span class="s">"https://allbets.dev/mcp"</span>
-      }
+      <span class="k">"command"</span>: <span class="s">"npx"</span>,
+      <span class="k">"args"</span>: [<span class="s">"-y"</span>, <span class="s">"mcp-remote@latest"</span>, <span class="s">"https://allbets.dev/mcp"</span>]
     }
   }
 }</pre>
 
       <p class="muted">Restart Claude Desktop. Ask: &ldquo;What does the market think about a Fed rate cut in June?&rdquo;</p>
+      <p class="muted"><strong>Cursor / Claude Code / any HTTP-native MCP client</strong> can hit <code>https://allbets.dev/mcp</code> directly without the shim — the proxy is a Claude Desktop limitation, not a server one.</p>
     </section>
 
     <hr class="rule" />
@@ -521,7 +520,7 @@ export const LANDING_HTML = `<!doctype html>
     </section>
 
     <footer>
-      <div>built at agents day lisbon · 2026-05-01 · sean tierney + jax</div>
+      <div>built at agents day lisbon · 2026-05-01 · marc johnson + sean tierney + jax</div>
       <div>
         <a href="https://github.com/scrollinondubs/allbets" target="_blank" rel="noopener">github</a>
         &nbsp;·&nbsp;

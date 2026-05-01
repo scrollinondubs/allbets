@@ -175,7 +175,7 @@ function toNormalized(m: GammaMarket): NormalizedMarket {
     restricted_jurisdictions: ["US"],
     is_parlay: false,
     is_auto_generated: false,
-    url: `https://polymarket.com/event/${event?.slug ?? m.slug}`,
+    url: `https://polymarket.com/event/${m.slug ?? event?.slug}`,
     raw: m,
   };
 }
@@ -184,24 +184,75 @@ export class PolymarketAdapter implements VenueAdapter {
   readonly venue = "polymarket" as const;
 
   async searchMarkets(query: string, limit = 10): Promise<NormalizedMarket[]> {
+    // Polymarket's Gamma `?q=` parameter is unreliable — it returns the same
+    // volume-sorted GTA-VI mega-event regardless of query value. Pull a broad
+    // active-by-volume slice and filter client-side instead.
     const url = new URL(`${GAMMA_BASE}/markets`);
     url.searchParams.set("active", "true");
     url.searchParams.set("closed", "false");
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("q", query);
+    url.searchParams.set("limit", "300");
+    url.searchParams.set("order", "volume24hr");
+    url.searchParams.set("ascending", "false");
 
     const res = await fetch(url);
     if (!res.ok) throw new Error(`polymarket search failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket[];
-    return json.slice(0, limit).map(toNormalized);
+
+    const tokens = query
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((t) => t.length > 2);
+
+    if (tokens.length === 0) return json.slice(0, limit).map(toNormalized);
+
+    const scored = json.map((m) => {
+      const haystack = `${m.question ?? ""} ${m.description ?? ""} ${
+        (m.events?.[0]?.title ?? "")
+      }`.toLowerCase();
+      let score = 0;
+      for (const t of tokens) {
+        if (haystack.includes(t)) score += 1;
+      }
+      return { m, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const matched = scored.filter((s) => s.score > 0).slice(0, limit);
+    return matched.map((s) => toNormalized(s.m));
   }
 
   async getMarket(venueMarketId: string): Promise<NormalizedMarket | null> {
-    const res = await fetch(`${GAMMA_BASE}/markets/${venueMarketId}`);
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`polymarket getMarket failed: ${res.status}`);
-    const json = (await res.json()) as GammaMarket;
-    return toNormalized(json);
+    const trimmed = venueMarketId.trim();
+    const isNumericId = /^\d+$/.test(trimmed);
+
+    if (isNumericId) {
+      const res = await fetch(`${GAMMA_BASE}/markets/${trimmed}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`polymarket getMarket failed: ${res.status}`);
+      const json = (await res.json()) as GammaMarket;
+      return toNormalized(json);
+    }
+
+    // slug fallback: query Gamma with slug filter
+    const url = new URL(`${GAMMA_BASE}/markets`);
+    url.searchParams.set("slug", trimmed);
+    url.searchParams.set("limit", "1");
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`polymarket getMarket-by-slug failed: ${res.status}`);
+    const json = (await res.json()) as GammaMarket[];
+    if (Array.isArray(json) && json.length > 0) return toNormalized(json[0]!);
+
+    // last resort: search by slug-as-query
+    const search = new URL(`${GAMMA_BASE}/markets`);
+    search.searchParams.set("q", trimmed.replace(/-/g, " "));
+    search.searchParams.set("limit", "1");
+    const sr = await fetch(search);
+    if (!sr.ok) return null;
+    const sj = (await sr.json()) as GammaMarket[];
+    if (Array.isArray(sj) && sj.length > 0) return toNormalized(sj[0]!);
+
+    return null;
   }
 
   async listActive(limit = 25): Promise<NormalizedMarket[]> {

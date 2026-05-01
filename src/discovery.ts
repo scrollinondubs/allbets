@@ -40,6 +40,16 @@ export async function fanOutSearch(
   return { markets, errors };
 }
 
+function jurisdictionBlocks(
+  venue: NormalizedMarket["venue"],
+  jurisdiction: "us" | "non_us" | "unknown" | undefined,
+): boolean {
+  if (!jurisdiction || jurisdiction === "unknown") return false;
+  if (venue === "polymarket" && jurisdiction === "us") return true;
+  if (venue === "kalshi" && jurisdiction === "non_us") return true;
+  return false;
+}
+
 function jurisdictionNote(
   venue: NormalizedMarket["venue"],
   jurisdiction: "us" | "non_us" | "unknown" | undefined,
@@ -63,10 +73,7 @@ function recommendVenue(
       r.has_match &&
       r.best_match &&
       !r.unavailable_reason &&
-      (jurisdiction === undefined ||
-        jurisdiction === "unknown" ||
-        !(r.venue === "kalshi" && jurisdiction === "non_us") &&
-          !(r.venue === "polymarket" && jurisdiction === "us")),
+      !jurisdictionBlocks(r.venue, jurisdiction),
   );
   if (tradable.length === 0) {
     return {
@@ -107,6 +114,8 @@ export async function discover(
   const venueOrder: NormalizedMarket["venue"][] = ["polymarket", "kalshi", "limitless"];
   const per_venue: VenueDiscoveryResult[] = venueOrder.map((venue) => {
     const error = errors.find((e) => e.venue === venue)?.error;
+    const blocked = jurisdictionBlocks(venue, jurisdiction);
+    const note = jurisdictionNote(venue, jurisdiction);
     const best = matches.get(venue);
     if (!best) {
       const sameVenueMarkets = markets.filter((m) => m.venue === venue);
@@ -117,9 +126,21 @@ export async function discover(
         adjacent_matches: sameVenueMarkets.slice(0, 3),
         unavailable_reason: error
           ? `venue API error: ${error}`
-          : "no contract matched the hypothesis",
-        jurisdiction_note: jurisdictionNote(venue, jurisdiction),
+          : blocked
+            ? "blocked by jurisdiction"
+            : "no contract matched the hypothesis",
+        jurisdiction_note: note,
         error,
+      };
+    }
+    if (blocked) {
+      return {
+        venue,
+        has_match: false,
+        match_count: best.adjacent.length + 1,
+        adjacent_matches: [best.market, ...best.adjacent],
+        unavailable_reason: "blocked by jurisdiction",
+        jurisdiction_note: note,
       };
     }
     return {
@@ -128,7 +149,7 @@ export async function discover(
       match_count: best.adjacent.length + 1,
       best_match: best.market,
       adjacent_matches: best.adjacent,
-      jurisdiction_note: jurisdictionNote(venue, jurisdiction),
+      jurisdiction_note: note,
     };
   });
 
