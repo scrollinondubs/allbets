@@ -4,6 +4,7 @@ import { PolymarketAdapter } from "./adapters/polymarket.js";
 import { recommendFromUrl } from "./recommend.js";
 import { decorateMarket, decorateMarkets, type AffiliateConfig } from "./affiliate.js";
 import { decorateWithImages } from "./imagen.js";
+import { grokSearchX } from "./grok.js";
 import { HistoryRangeSchema } from "./schema.js";
 import type { NormalizedMarket } from "./schema.js";
 
@@ -21,6 +22,7 @@ interface ToolEnv {
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
   OPENAI_API_KEY?: string;
+  XAI_API_KEY?: string;
   POLYMARKET_REF_CODE?: string;
   KALSHI_REF_CODE?: string;
   LIMITLESS_REF_CODE?: string;
@@ -82,6 +84,11 @@ export const HistoryInputSchema = z.object({
   range: HistoryRangeSchema.default("24h"),
 });
 
+export const SignalInputSchema = z.object({
+  query: z.string().min(2),
+  hours_back: z.union([z.literal(1), z.literal(6), z.literal(24), z.literal(72)]).default(24),
+});
+
 export const TOOL_DEFS = [
   {
     name: "pm_discover",
@@ -138,6 +145,27 @@ export const TOOL_DEFS = [
         },
       },
       required: ["market"],
+    },
+  },
+  {
+    name: "pm_signal",
+    description:
+      "Live X (Twitter) signal for a hypothesis or market topic, via Grok's first-party x_search. Returns the most-engaged recent posts with citations + a one-line narrative summary. Use this AFTER pm_history to answer 'why did this market just move?' — pm_history shows WHAT happened, pm_signal shows WHAT WAS BEING SAID. Polymarket / Kalshi / political / crypto markets all move on X chatter; this exposes that chatter directly. Latency 5-15s and cost ~$0.05/call so keep it opt-in, not in the hot path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Topic, hypothesis, or market question. Free-form natural language. Examples: 'Russia Ukraine ceasefire', 'Polymarket MegaETH FDV market', 'Powell rate cut June'.",
+        },
+        hours_back: {
+          type: "number",
+          enum: [1, 6, 24, 72],
+          default: 24,
+          description: "Time window for the X search. Smaller windows surface fresher signal but may return fewer posts.",
+        },
+      },
+      required: ["query"],
     },
   },
   {
@@ -402,6 +430,17 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     }
     const result = await adapter.getHistory(ref.id, range);
     if (!result) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
+    return ok(result);
+  }
+  if (name === "pm_signal") {
+    const { query, hours_back } = SignalInputSchema.parse(args);
+    if (!env.XAI_API_KEY) {
+      return err({
+        error: "xai_api_key_not_configured",
+        detail: "Set XAI_API_KEY via `wrangler secret put XAI_API_KEY` (production) or .dev.vars (local). Get a key at https://console.x.ai.",
+      });
+    }
+    const result = await grokSearchX(query, hours_back, env.XAI_API_KEY);
     return ok(result);
   }
   if (name === "pm_disputes_active") {
