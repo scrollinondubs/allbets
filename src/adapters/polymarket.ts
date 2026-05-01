@@ -6,6 +6,7 @@ import type {
 } from "../schema.js";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
+const FETCH_TIMEOUT_MS = 8000;
 
 interface GammaEvent {
   id: string;
@@ -190,14 +191,16 @@ export class PolymarketAdapter implements VenueAdapter {
     url.searchParams.set("limit", String(limit));
     url.searchParams.set("q", query);
 
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`polymarket search failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket[];
     return json.slice(0, limit).map(toNormalized);
   }
 
   async getMarket(venueMarketId: string): Promise<NormalizedMarket | null> {
-    const res = await fetch(`${GAMMA_BASE}/markets/${venueMarketId}`);
+    const res = await fetch(`${GAMMA_BASE}/markets/${venueMarketId}`, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`polymarket getMarket failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket;
@@ -212,7 +215,7 @@ export class PolymarketAdapter implements VenueAdapter {
     url.searchParams.set("order", "volume24hr");
     url.searchParams.set("ascending", "false");
 
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`polymarket listActive failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket[];
     return json.slice(0, limit).map(toNormalized);
@@ -225,7 +228,7 @@ export class PolymarketAdapter implements VenueAdapter {
       const url = new URL(`${GAMMA_BASE}/markets`);
       url.searchParams.set("limit", "100");
       url.searchParams.set("q", q);
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (!res.ok) continue;
       const json = (await res.json()) as GammaMarket[];
       for (const raw of json) {

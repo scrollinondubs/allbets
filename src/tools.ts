@@ -145,16 +145,27 @@ function resolveMarketRef(input: string): { venue: NormalizedMarket["venue"]; id
   return null;
 }
 
-export async function runTool(name: string, args: unknown): Promise<unknown> {
+export interface ToolResult {
+  value: unknown;
+  // Per MCP spec: isError signals tool-level (semantic) failure to the client,
+  // distinct from JSON-RPC transport errors. Agents see this and know to
+  // surface or self-correct rather than treat the response as success.
+  isError?: boolean;
+}
+
+const ok = (value: unknown): ToolResult => ({ value });
+const err = (value: unknown): ToolResult => ({ value, isError: true });
+
+export async function runTool(name: string, args: unknown): Promise<ToolResult> {
   if (name === "pm_discover") {
     const { hypothesis, jurisdiction, limit_per_venue } = DiscoverInputSchema.parse(args);
-    return discover(hypothesis, jurisdiction, limit_per_venue);
+    return ok(await discover(hypothesis, jurisdiction, limit_per_venue));
   }
   if (name === "pm_quote") {
     const { market } = QuoteInputSchema.parse(args);
     const ref = resolveMarketRef(market);
     if (!ref) {
-      return {
+      return err({
         error: "could_not_parse_market_ref",
         input: market,
         accepted_forms: [
@@ -163,32 +174,32 @@ export async function runTool(name: string, args: unknown): Promise<unknown> {
           "kalshi.com URL",
           "limitless.exchange URL",
         ],
-      };
+      });
     }
     const adapter = ADAPTERS.find((a) => a.venue === ref.venue);
-    if (!adapter) return { error: "unknown_venue", venue: ref.venue };
+    if (!adapter) return err({ error: "unknown_venue", venue: ref.venue });
     const m = await adapter.getMarket(ref.id);
-    if (!m) return { error: "market_not_found", venue: ref.venue, id: ref.id };
-    return { quote: m };
+    if (!m) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
+    return ok({ quote: m });
   }
   if (name === "pm_disputes_active") {
     const { limit } = DisputesActiveInputSchema.parse(args);
     const adapter = ADAPTERS.find((a) => a.venue === "polymarket");
     const polymarket = adapter as PolymarketAdapter | undefined;
     if (!polymarket || typeof polymarket.listDisputed !== "function") {
-      return { count: 0, markets: [], note: "no adapter exposes dispute listing" };
+      return ok({ count: 0, markets: [], note: "no adapter exposes dispute listing" });
     }
     const markets = await polymarket.listDisputed(limit);
-    return {
+    return ok({
       count: markets.length,
       note: "Polymarket UMA-flagged markets only. Kalshi and Limitless settle deterministically and have no analogous dispute risk.",
       markets,
-    };
+    });
   }
   if (name === "pm_search") {
     const { query, limit_per_venue, venues } = SearchInputSchema.parse(args);
     const out = await fanOutSearch(query, limit_per_venue, venues);
-    return { query, count: out.markets.length, errors: out.errors, markets: out.markets };
+    return ok({ query, count: out.markets.length, errors: out.errors, markets: out.markets });
   }
   if (name === "pm_list_active") {
     const { limit_per_venue, venues } = ListActiveInputSchema.parse(args);
@@ -205,7 +216,7 @@ export async function runTool(name: string, args: unknown): Promise<unknown> {
       if (r.status === "fulfilled") markets.push(...r.value);
       else errors.push({ venue, error: String(r.reason) });
     });
-    return { count: markets.length, errors, markets };
+    return ok({ count: markets.length, errors, markets });
   }
   throw new Error(`unknown tool: ${name}`);
 }

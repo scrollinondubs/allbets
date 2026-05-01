@@ -2,6 +2,7 @@ import type { VenueAdapter } from "./types.js";
 import type { NormalizedMarket, ResolutionStatus } from "../schema.js";
 
 const KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+const FETCH_TIMEOUT_MS = 8000;
 
 interface KalshiMarket {
   ticker: string;
@@ -19,6 +20,12 @@ interface KalshiMarket {
   open_interest_fp?: string | number;
   close_time?: string;
   status?: string;
+}
+
+interface KalshiEvent {
+  event_ticker: string;
+  title?: string;
+  markets?: KalshiMarket[];
 }
 
 function n(v: string | number | undefined): number | undefined {
@@ -48,10 +55,14 @@ function statusToResolution(status?: string): ResolutionStatus {
   }
 }
 
+function isParlayTicker(ticker: string, marketType?: string): boolean {
+  return ticker.startsWith("KXMVE") || marketType === "multi_leg";
+}
+
 function toNormalized(m: KalshiMarket): NormalizedMarket {
   const yesProb = clampProbability(n(m.last_price_dollars));
   const noProb = Math.max(0, 1 - yesProb);
-  const isParlay = m.ticker.startsWith("KXMVE") || m.market_type === "multi_leg";
+  const isParlay = isParlayTicker(m.ticker, m.market_type);
 
   return {
     venue: "kalshi",
@@ -90,30 +101,55 @@ function toNormalized(m: KalshiMarket): NormalizedMarket {
   };
 }
 
+async function fetchJson(url: URL | string): Promise<unknown> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+  if (!res.ok) throw new Error(`kalshi ${res.status} on ${typeof url === "string" ? url : url.pathname}`);
+  return res.json();
+}
+
+// Fetches non-parlay markets via /events?with_nested_markets=true.
+// Kalshi's /markets endpoint is dominated by KXMVE multi-leg parlays today
+// (200/200 in the default sort), so querying markets directly returns nothing
+// after parlay filtering. Events expose only one logical contract per series
+// and surface real binary markets like FOMC, elections, sports outcomes.
+async function fetchMarketsViaEvents(eventLimit = 50): Promise<KalshiMarket[]> {
+  const url = new URL(`${KALSHI_BASE}/events`);
+  url.searchParams.set("limit", String(eventLimit));
+  url.searchParams.set("status", "open");
+  url.searchParams.set("with_nested_markets", "true");
+  const json = (await fetchJson(url)) as { events?: KalshiEvent[] };
+  const events = json.events ?? [];
+  const markets: KalshiMarket[] = [];
+  for (const e of events) {
+    if (isParlayTicker(e.event_ticker)) continue;
+    for (const m of e.markets ?? []) {
+      if (isParlayTicker(m.ticker, m.market_type)) continue;
+      markets.push(m);
+    }
+  }
+  return markets;
+}
+
 export class KalshiAdapter implements VenueAdapter {
   readonly venue = "kalshi" as const;
 
   async searchMarkets(query: string, limit = 10): Promise<NormalizedMarket[]> {
-    const url = new URL(`${KALSHI_BASE}/markets`);
-    url.searchParams.set("limit", "200");
-    url.searchParams.set("status", "open");
-
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`kalshi search failed: ${res.status}`);
-    const json = (await res.json()) as { markets: KalshiMarket[] };
+    const markets = await fetchMarketsViaEvents(100);
     const q = query.toLowerCase();
-    const filtered = json.markets
-      .filter((m) => !m.ticker.startsWith("KXMVE"))
+    return markets
       .filter(
         (m) =>
           m.title.toLowerCase().includes(q) ||
           (m.subtitle ?? "").toLowerCase().includes(q),
-      );
-    return filtered.slice(0, limit).map(toNormalized);
+      )
+      .slice(0, limit)
+      .map(toNormalized);
   }
 
   async getMarket(venueMarketId: string): Promise<NormalizedMarket | null> {
-    const res = await fetch(`${KALSHI_BASE}/markets/${venueMarketId}`);
+    const res = await fetch(`${KALSHI_BASE}/markets/${venueMarketId}`, {
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`kalshi getMarket failed: ${res.status}`);
     const json = (await res.json()) as { market: KalshiMarket };
@@ -121,16 +157,7 @@ export class KalshiAdapter implements VenueAdapter {
   }
 
   async listActive(limit = 25): Promise<NormalizedMarket[]> {
-    const url = new URL(`${KALSHI_BASE}/markets`);
-    url.searchParams.set("limit", "200");
-    url.searchParams.set("status", "open");
-
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`kalshi listActive failed: ${res.status}`);
-    const json = (await res.json()) as { markets: KalshiMarket[] };
-    return json.markets
-      .filter((m) => !m.ticker.startsWith("KXMVE"))
-      .slice(0, limit)
-      .map(toNormalized);
+    const markets = await fetchMarketsViaEvents(Math.max(50, limit * 2));
+    return markets.slice(0, limit).map(toNormalized);
   }
 }
