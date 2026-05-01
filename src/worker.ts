@@ -1,7 +1,11 @@
 import { Hono } from "hono";
+import { agentsMiddleware } from "hono-agents";
 import { z } from "zod";
 import { TOOL_DEFS, runTool } from "./tools.js";
 import { LANDING_HTML } from "./landing.js";
+
+// Re-export agent classes so wrangler can bind them as Durable Objects
+export { RecommendAgent } from "./agents/recommend-agent.js";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -14,14 +18,28 @@ interface WorkersAIBinding {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 }
 
+interface DurableObjectNamespace {
+  idFromName(name: string): unknown;
+  get(id: unknown): { fetch: (request: Request) => Promise<Response>; recommend?: (...args: unknown[]) => Promise<unknown> };
+}
+
 interface WorkerEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
+  POLYMARKET_REF_CODE?: string;
+  KALSHI_REF_CODE?: string;
+  LIMITLESS_REF_CODE?: string;
   AI?: WorkersAIBinding;
+  RecommendAgent?: DurableObjectNamespace;
 }
 
 const app = new Hono<{ Bindings: WorkerEnv }>();
+
+// Cloudflare Agents middleware — handles /agents/* routes for HTTP and WebSocket
+// access to Agent Durable Objects. Lets external agents talk to RecommendAgent
+// without going through the MCP layer.
+app.use("/agents/*", agentsMiddleware());
 
 app.get("/", (c) =>
   c.html(LANDING_HTML, 200, {

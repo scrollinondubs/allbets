@@ -27,7 +27,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.0",
+    "agents": "^0.12.0",
     "hono": "^4.6.0",
+    "hono-agents": "^3.0.11",
     "zod": "^3.23.0"
   },
   "devDependencies": {

@@ -2,17 +2,35 @@ import { z } from "zod";
 import { ADAPTERS, discover, fanOutSearch } from "./discovery.js";
 import { PolymarketAdapter } from "./adapters/polymarket.js";
 import { recommendFromUrl } from "./recommend.js";
+import { decorateMarket, decorateMarkets, type AffiliateConfig } from "./affiliate.js";
 import type { NormalizedMarket } from "./schema.js";
 
 interface WorkersAIBinding {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 }
 
+interface RecommendAgentNamespace {
+  idFromName(name: string): unknown;
+  get(id: unknown): { fetch: (request: Request) => Promise<Response> };
+}
+
 interface ToolEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
+  POLYMARKET_REF_CODE?: string;
+  KALSHI_REF_CODE?: string;
+  LIMITLESS_REF_CODE?: string;
   AI?: WorkersAIBinding;
+  RecommendAgent?: RecommendAgentNamespace;
+}
+
+function affiliateConfigFromEnv(env: ToolEnv): AffiliateConfig {
+  return {
+    polymarket: env.POLYMARKET_REF_CODE,
+    kalshi: env.KALSHI_REF_CODE,
+    limitless: env.LIMITLESS_REF_CODE,
+  };
 }
 
 export const VenueArgSchema = z
@@ -99,7 +117,7 @@ export const TOOL_DEFS = [
   {
     name: "pm_recommend",
     description:
-      "Personalized recommendations: scrape a profile URL (blog, Substack, personal site), extract topics + stances, then return up to N prediction-market bets across Polymarket / Kalshi / Limitless that match the person's interests. Ranked by stance-alignment + liquidity. Stateless — no URL or content persisted.",
+      "Personalized recommendations via the RecommendAgent (Cloudflare Agents SDK Durable Object). Scrape a profile URL (blog, Substack, personal site), extract topics + stances via Workers AI, return up to N prediction-market bets across Polymarket / Kalshi / Limitless ranked by stance-alignment + liquidity. The agent persists call history in SQLite at the edge; no PII is stored.",
     inputSchema: {
       type: "object",
       properties: {
@@ -195,14 +213,74 @@ export interface ToolResult {
 const ok = (value: unknown): ToolResult => ({ value });
 const err = (value: unknown): ToolResult => ({ value, isError: true });
 
+function decorateDiscoverReport(
+  report: Awaited<ReturnType<typeof discover>>,
+  config: AffiliateConfig,
+): Awaited<ReturnType<typeof discover>> {
+  return {
+    ...report,
+    per_venue: report.per_venue.map((v) => ({
+      ...v,
+      best_match: v.best_match ? decorateMarket(v.best_match, config) : v.best_match,
+      adjacent_matches: v.adjacent_matches
+        ? decorateMarkets(v.adjacent_matches, config)
+        : v.adjacent_matches,
+    })),
+    recommendation: report.recommendation.best_venue
+      ? {
+          ...report.recommendation,
+          trade_here_url: report.recommendation.trade_here_url
+            ? decorateMarket(
+                {
+                  venue: report.recommendation.best_venue,
+                  url: report.recommendation.trade_here_url,
+                } as NormalizedMarket,
+                config,
+              ).url
+            : report.recommendation.trade_here_url,
+        }
+      : report.recommendation,
+  };
+}
+
 export async function runTool(name: string, args: unknown, env: ToolEnv = {}): Promise<ToolResult> {
+  const affiliateConfig = affiliateConfigFromEnv(env);
+
   if (name === "pm_discover") {
     const { hypothesis, jurisdiction, limit_per_venue } = DiscoverInputSchema.parse(args);
-    return ok(await discover(hypothesis, jurisdiction, limit_per_venue));
+    const report = await discover(hypothesis, jurisdiction, limit_per_venue);
+    return ok(decorateDiscoverReport(report, affiliateConfig));
   }
   if (name === "pm_recommend") {
     const { profile_url, jurisdiction, max_recommendations } = RecommendInputSchema.parse(args);
-    return ok(await recommendFromUrl(profile_url, jurisdiction, max_recommendations, env));
+    // Dispatch to RecommendAgent (Cloudflare Agents SDK Durable Object) — owns
+    // the URL→recommendations pipeline with persisted state across calls.
+    if (env.RecommendAgent) {
+      const id = env.RecommendAgent.idFromName("pm_recommend:default");
+      const stub = env.RecommendAgent.get(id);
+      const agentRes = await stub.fetch(
+        new Request("https://agent.internal/agents/recommend-agent/pm_recommend:default", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ profile_url, jurisdiction, max_recommendations }),
+        }),
+      );
+      if (!agentRes.ok) {
+        const text = await agentRes.text();
+        return err({ error: "agent_failed", status: agentRes.status, detail: text.slice(0, 500) });
+      }
+      return ok(await agentRes.json());
+    }
+    // Fallback: pre-Agents-SDK path (in case DO binding is missing in dev)
+    const report = await recommendFromUrl(profile_url, jurisdiction, max_recommendations, env);
+    const decorated = {
+      ...report,
+      recommendations: report.recommendations.map((rec) => ({
+        ...rec,
+        market: decorateMarket(rec.market, affiliateConfig),
+      })),
+    };
+    return ok(decorated);
   }
   if (name === "pm_quote") {
     const { market } = QuoteInputSchema.parse(args);
@@ -223,7 +301,7 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     if (!adapter) return err({ error: "unknown_venue", venue: ref.venue });
     const m = await adapter.getMarket(ref.id);
     if (!m) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
-    return ok({ quote: m });
+    return ok({ quote: decorateMarket(m, affiliateConfig) });
   }
   if (name === "pm_disputes_active") {
     const { limit } = DisputesActiveInputSchema.parse(args);
@@ -236,13 +314,18 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     return ok({
       count: markets.length,
       note: "Polymarket UMA-flagged markets only. Kalshi and Limitless settle deterministically and have no analogous dispute risk.",
-      markets,
+      markets: decorateMarkets(markets, affiliateConfig),
     });
   }
   if (name === "pm_search") {
     const { query, limit_per_venue, venues } = SearchInputSchema.parse(args);
     const out = await fanOutSearch(query, limit_per_venue, venues);
-    return ok({ query, count: out.markets.length, errors: out.errors, markets: out.markets });
+    return ok({
+      query,
+      count: out.markets.length,
+      errors: out.errors,
+      markets: decorateMarkets(out.markets, affiliateConfig),
+    });
   }
   if (name === "pm_list_active") {
     const { limit_per_venue, venues } = ListActiveInputSchema.parse(args);
@@ -259,7 +342,7 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
       if (r.status === "fulfilled") markets.push(...r.value);
       else errors.push({ venue, error: String(r.reason) });
     });
-    return ok({ count: markets.length, errors, markets });
+    return ok({ count: markets.length, errors, markets: decorateMarkets(markets, affiliateConfig) });
   }
   throw new Error(`unknown tool: ${name}`);
 }
