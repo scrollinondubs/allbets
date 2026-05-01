@@ -2,6 +2,11 @@ import type { VenueAdapter } from "./types.js";
 import type { NormalizedMarket, ResolutionStatus } from "../schema.js";
 
 const KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
+const FETCH_TIMEOUT_MS = 8000;
+
+function timed(): RequestInit {
+  return { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) };
+}
 
 interface KalshiMarket {
   ticker: string;
@@ -149,7 +154,7 @@ async function fetchEventsByCursor(maxEvents = 200): Promise<KalshiEvent[]> {
     url.searchParams.set("limit", "200");
     url.searchParams.set("with_nested_markets", "true");
     if (cursor) url.searchParams.set("cursor", cursor);
-    const res = await fetch(url);
+    const res = await fetch(url, timed());
     if (!res.ok) break;
     const json = (await res.json()) as KalshiEventsResponse;
     const events = json.events ?? [];
@@ -171,7 +176,7 @@ async function fetchEventsForSeries(seriesTicker: string): Promise<KalshiEvent[]
   url.searchParams.set("status", "open");
   url.searchParams.set("limit", "50");
   url.searchParams.set("with_nested_markets", "true");
-  const res = await fetch(url);
+  const res = await fetch(url, timed());
   if (!res.ok) return [];
   const json = (await res.json()) as KalshiEventsResponse;
   return json.events ?? [];
@@ -183,7 +188,7 @@ async function findMatchingSeries(queryTokens: string[]): Promise<string[]> {
   const url = new URL(`${KALSHI_BASE}/series`);
   url.searchParams.set("limit", "200");
   url.searchParams.set("include_product_metadata", "false");
-  const res = await fetch(url);
+  const res = await fetch(url, timed());
   if (!res.ok) return [];
   const json = (await res.json()) as KalshiSeriesResponse;
   const series = json.series ?? [];
@@ -246,7 +251,7 @@ export class KalshiAdapter implements VenueAdapter {
 
   async getMarket(venueMarketId: string): Promise<NormalizedMarket | null> {
     const ticker = venueMarketId.trim();
-    const res = await fetch(`${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`);
+    const res = await fetch(`${KALSHI_BASE}/markets/${encodeURIComponent(ticker)}`, timed());
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`kalshi getMarket failed: ${res.status}`);
     const json = (await res.json()) as { market: KalshiMarket };
