@@ -96,20 +96,20 @@ npm run deploy
 
 ## Connect from Claude Desktop
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Claude Desktop only speaks stdio natively, so bridge through `mcp-remote`. Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "allbets": {
-      "transport": {
-        "type": "streamable-http",
-        "url": "https://allbets.dev/mcp"
-      }
+      "command": "npx",
+      "args": ["-y", "mcp-remote@latest", "https://allbets.dev/mcp"]
     }
   }
 }
 ```
+
+Restart Claude Desktop. HTTP-native MCP clients (Cursor, Claude Code, any spec-compliant client) can hit `https://allbets.dev/mcp` directly without the shim — the proxy is a Claude Desktop limitation, not a server one.
 
 ## Deliberate non-features
 
