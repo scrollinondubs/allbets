@@ -113,7 +113,6 @@ export const TOOL_DEFS = [
           description: "User's regulatory jurisdiction. US blocks Polymarket-international; non-US blocks Kalshi.",
         },
         limit_per_venue: { type: "number", default: 15 },
-        visual: { type: "boolean", default: false, description: "If true, attach an OpenAI-generated editorial image to each market in the response. Requires OPENAI_API_KEY Worker secret. Costs ~$0.04 per image." },
       },
       required: ["hypothesis"],
     },
@@ -121,7 +120,7 @@ export const TOOL_DEFS = [
   {
     name: "pm_quote",
     description:
-      "Single-market deep-dive. Pass a market URL (Polymarket / Kalshi / Limitless) or a 'venue:id' shorthand (e.g. 'polymarket:540816' or 'kalshi:KXFEDMTG-26JUN-T5'). Returns the fully-loaded normalized market including settlement risk badge (UMA dispute window, bond/reward, resolution status). Use this AFTER pm_discover to get the trust shape behind a price. Pass visual=true to attach an OpenAI-generated illustration to the response.",
+      "Single-market deep-dive. Pass a market URL (Polymarket / Kalshi / Limitless) or a 'venue:id' shorthand (e.g. 'polymarket:540816' or 'kalshi:KXFEDMTG-26JUN-T5'). Returns the fully-loaded normalized market including settlement risk badge (UMA dispute window, bond/reward, resolution status). Use this AFTER pm_discover to get the trust shape behind a price.",
     inputSchema: {
       type: "object",
       properties: {
@@ -129,7 +128,6 @@ export const TOOL_DEFS = [
           type: "string",
           description: "Market URL or 'venue:id' shorthand. Examples: 'https://polymarket.com/event/...', 'polymarket:540816', 'kalshi:KXFEDMTG-26JUN-T5', 'limitless:0x...'",
         },
-        visual: { type: "boolean", default: false, description: "If true, attach an OpenAI-generated editorial image to the market in the response. Requires OPENAI_API_KEY Worker secret. Costs ~$0.04 per image." },
       },
       required: ["market"],
     },
@@ -218,7 +216,7 @@ export const TOOL_DEFS = [
   {
     name: "pm_recommend",
     description:
-      "Personalized recommendations via the RecommendAgent (Cloudflare Agents SDK Durable Object). Scrape a profile URL (blog, Substack, personal site), extract topics + stances via Workers AI, return up to N prediction-market bets across Polymarket / Kalshi / Limitless ranked by stance-alignment + liquidity. The agent persists call history in SQLite at the edge; no PII is stored. Pass visual=true to attach an OpenAI-generated illustration to each recommendation.",
+      "Personalized recommendations via the RecommendAgent (Cloudflare Agents SDK Durable Object). Scrape a profile URL (blog, Substack, personal site), extract topics + stances via Workers AI, return up to N prediction-market bets across Polymarket / Kalshi / Limitless ranked by stance-alignment + liquidity. The agent persists call history in SQLite at the edge; no PII is stored.",
     inputSchema: {
       type: "object",
       properties: {
@@ -232,7 +230,6 @@ export const TOOL_DEFS = [
           default: "unknown",
         },
         max_recommendations: { type: "number", default: 10 },
-        visual: { type: "boolean", default: false, description: "If true, attach an OpenAI-generated editorial image to each recommended market. Requires OPENAI_API_KEY Worker secret. Costs ~$0.04 per image." },
       },
       required: ["profile_url"],
     },
@@ -246,7 +243,6 @@ export const TOOL_DEFS = [
         query: { type: "string" },
         limit_per_venue: { type: "number", default: 10 },
         venues: { type: "array", items: { enum: ["polymarket", "kalshi", "limitless"] } },
-        visual: { type: "boolean", default: false },
       },
       required: ["query"],
     },
@@ -259,7 +255,6 @@ export const TOOL_DEFS = [
       properties: {
         limit_per_venue: { type: "number", default: 10 },
         venues: { type: "array", items: { enum: ["polymarket", "kalshi", "limitless"] } },
-        visual: { type: "boolean", default: false },
       },
     },
   },
