@@ -7,8 +7,11 @@ export interface ImagenResult {
 }
 
 const OPENAI_BASE = "https://api.openai.com/v1";
-const MODEL = "dall-e-3";
-const SIZE = "1024x1024";
+// DALL-E 2 + 512x512 keeps base64 payload ~256KB per image so multi-market
+// responses fit under Claude Desktop's content size cap. DALL-E 3 1024x1024
+// produced ~1.5MB per image and broke the demo at 3 markets.
+const MODEL = "dall-e-2";
+const SIZE = "512x512";
 const TIMEOUT_MS = 90000;
 
 function buildPrompt(market: NormalizedMarket): string {
