@@ -96,6 +96,11 @@ function toNormalized(m: LimitlessMarket): NormalizedMarket {
     collateral_token: "USDC",
     is_parlay: false,
     is_auto_generated: isAuto,
+    // Limitless is AMM-based (CPMM); execution cost shows up as price impact,
+    // not a separate fee. Surface as 0 so pm_ev's fee subtraction is honest —
+    // slippage modeling is a Phase 3 sophistication.
+    taker_fee_bps: 0,
+    maker_fee_bps: 0,
     url: m.slug
       ? `https://limitless.exchange/markets/${m.slug}`
       : `https://limitless.exchange/markets/${m.address}`,

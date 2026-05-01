@@ -67,6 +67,15 @@ export const NormalizedMarketSchema = z.object({
   restricted_jurisdictions: z.array(z.string()).optional(),
   is_parlay: z.boolean().optional(),
   is_auto_generated: z.boolean().optional(),
+  // Execution-cost fields (consumed by pm_ev). Defaults are working assumptions
+  // when the venue does not expose per-market fees in its public API:
+  //   Polymarket — surfaced from Gamma `mbf` / `tbf` (basis points).
+  //   Kalshi     — flat 350 bps taker (~3.5%) until per-market fees exposed.
+  //   Limitless  — 0 bps; AMM fees are baked into the price impact curve.
+  maker_fee_bps: z.number().nonnegative().optional(),
+  taker_fee_bps: z.number().nonnegative().optional(),
+  min_tick_size: z.number().positive().optional(),
+  min_order_size_usd: z.number().nonnegative().optional(),
   url: z.string().url(),
   raw_url: z.string().url().optional(),
   is_affiliate_link: z.boolean().optional(),
@@ -135,3 +144,68 @@ export const MarketHistorySchema = z.object({
   note: z.string().optional(),
 });
 export type MarketHistory = z.infer<typeof MarketHistorySchema>;
+
+// pm_ev — positive expected value evaluator
+export const EvRecommendationSchema = z.enum([
+  "INTRA_MARKET_ARB",  // ask_yes + ask_no + fees < $1 — risk-free regardless of outcome
+  "BET_YES",
+  "BET_NO",
+  "EDGE_TOO_THIN",
+  "PASS",
+]);
+export type EvRecommendation = z.infer<typeof EvRecommendationSchema>;
+
+// Intra-market arbitrage signal: both YES and NO can be bought for combined
+// cost (incl. fees) below $1, guaranteeing $1 payout on the winning side.
+// Only set when both sides have real bid/ask data (not probability fallbacks).
+// Settlement-risk-immune because both legs settle on the same event — if UMA
+// flips, both legs follow the flip and the payout is unchanged.
+export const IntraMarketArbSchema = z.object({
+  detected: z.literal(true),
+  ask_yes: z.number().min(0).max(1),
+  ask_no: z.number().min(0).max(1),
+  cost_per_dollar_payout: z.object({
+    gross: z.number().min(0),                  // ask_yes + ask_no
+    after_fees: z.number().min(0),             // gross × (1 + taker_fee_rate)
+  }),
+  risk_free_return_pct: z.number(),            // (1 / after_fees − 1) × 100
+  caveats: z.array(z.string()),                // liquidity, sizing, etc.
+});
+export type IntraMarketArb = z.infer<typeof IntraMarketArbSchema>;
+
+export const EvSideSchema = z.object({
+  side: z.enum(["YES", "NO"]),
+  ask_price: z.number().min(0).max(1),
+  ev_per_dollar: z.object({
+    raw: z.number(),
+    after_fees: z.number(),
+    after_settlement_risk: z.number(),
+  }),
+  kelly: z
+    .object({
+      full_fraction: z.number(),
+      suggested_fraction: z.number(),
+      suggested_stake_usd: z.number().nullable(),
+    })
+    .nullable(),
+});
+export type EvSide = z.infer<typeof EvSideSchema>;
+
+export const EvReportSchema = z.object({
+  market: NormalizedMarketSchema,
+  market_implied_p_yes: z.number().min(0).max(1),
+  user_p_yes: z.number().min(0).max(1).nullable(),
+  edge_pts: z.number().nullable(),                  // user_p_yes - market_implied_p_yes, in pts
+  fees: z.object({
+    taker_fee_bps: z.number().nonnegative(),
+    fee_per_dollar: z.number().nonnegative(),       // fraction of stake lost to fees
+    source: z.enum(["venue", "default", "constant"]),
+  }),
+  risk_discount_factor: z.number().min(0).max(1),   // 1.0=low, 0.85=mod, 0.5=high
+  yes: EvSideSchema,
+  no: EvSideSchema,
+  intra_market_arb: IntraMarketArbSchema.nullable(),
+  recommendation: EvRecommendationSchema,
+  rationale: z.string(),
+});
+export type EvReport = z.infer<typeof EvReportSchema>;

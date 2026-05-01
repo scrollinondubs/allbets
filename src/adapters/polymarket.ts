@@ -45,6 +45,15 @@ interface GammaMarket {
   umaReward?: string;
   acceptingOrders?: boolean;
   acceptingOrdersTimestamp?: string;
+  // Fee + tick fields exposed by the CLOB market info endpoint. Gamma sometimes
+  // surfaces these directly on the market record; when missing we leave them
+  // undefined and pm_ev falls back to a default.
+  makerBaseFee?: string | number;
+  takerBaseFee?: string | number;
+  mbf?: string | number;
+  tbf?: string | number;
+  orderPriceMinTickSize?: string | number;
+  orderMinSize?: string | number;
 }
 
 function parseJsonArray(s: string | undefined): string[] {
@@ -68,9 +77,9 @@ function parseUmaStatuses(m: GammaMarket): string[] {
   return m.umaResolutionStatus ? [m.umaResolutionStatus.toLowerCase()] : [];
 }
 
-function n(v: string | undefined): number | undefined {
+function n(v: string | number | undefined): number | undefined {
   if (v === undefined || v === null) return undefined;
-  const x = Number(v);
+  const x = typeof v === "number" ? v : Number(v);
   return Number.isFinite(x) ? x : undefined;
 }
 
@@ -184,9 +193,28 @@ function toNormalized(m: GammaMarket): NormalizedMarket {
     restricted_jurisdictions: ["US"],
     is_parlay: false,
     is_auto_generated: false,
+    maker_fee_bps: pickBps(m.mbf, m.makerBaseFee),
+    taker_fee_bps: pickBps(m.tbf, m.takerBaseFee),
+    min_tick_size: n(m.orderPriceMinTickSize),
+    min_order_size_usd: n(m.orderMinSize),
     url: `https://polymarket.com/event/${m.slug ?? event?.slug}`,
     raw: m,
   };
+}
+
+// Polymarket exposes fees in basis points sometimes as `mbf`/`tbf` (CLOB-style)
+// and sometimes as `makerBaseFee`/`takerBaseFee` (camelCase Gamma style). Some
+// older records carry the value as a decimal fraction (0.02 = 2%) — detect and
+// normalize. Returns undefined if no fee data is available.
+function pickBps(...candidates: Array<string | number | undefined>): number | undefined {
+  for (const c of candidates) {
+    const x = n(c);
+    if (x === undefined) continue;
+    // If the raw value is < 1, treat it as a decimal fraction (e.g. 0.02 → 200 bps).
+    // Otherwise treat it as basis points already.
+    return x < 1 ? Math.round(x * 10000) : x;
+  }
+  return undefined;
 }
 
 export class PolymarketAdapter implements VenueAdapter {
