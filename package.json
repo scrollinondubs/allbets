@@ -1,0 +1,38 @@
+{
+  "name": "@allbets/mcp",
+  "version": "0.1.0",
+  "description": "Unified MCP server for prediction markets — Kalshi, Polymarket, Limitless behind one normalized tool surface.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "allbets-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "prediction-markets",
+    "polymarket",
+    "kalshi",
+    "limitless",
+    "agent"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
