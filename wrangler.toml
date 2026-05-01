@@ -15,6 +15,15 @@ preview_urls = true
 [observability]
 enabled = true
 
-# Workers AI: Llama-3.3-70b for pm_recommend topic extraction (replaces personal Anthropic key for cost isolation)
+# Workers AI: Llama-3.3-70b for pm_recommend topic extraction (admin@allbets.dev account, free tier)
 [ai]
 binding = "AI"
+
+# Cloudflare Agents SDK — RecommendAgent owns URL→recommendations pipeline with persisted state
+[[durable_objects.bindings]]
+name = "RecommendAgent"
+class_name = "RecommendAgent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RecommendAgent"]

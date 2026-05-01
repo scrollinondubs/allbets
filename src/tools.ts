@@ -9,6 +9,11 @@ interface WorkersAIBinding {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
 }
 
+interface RecommendAgentNamespace {
+  idFromName(name: string): unknown;
+  get(id: unknown): { fetch: (request: Request) => Promise<Response> };
+}
+
 interface ToolEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
@@ -17,6 +22,7 @@ interface ToolEnv {
   KALSHI_REF_CODE?: string;
   LIMITLESS_REF_CODE?: string;
   AI?: WorkersAIBinding;
+  RecommendAgent?: RecommendAgentNamespace;
 }
 
 function affiliateConfigFromEnv(env: ToolEnv): AffiliateConfig {
@@ -111,7 +117,7 @@ export const TOOL_DEFS = [
   {
     name: "pm_recommend",
     description:
-      "Personalized recommendations: scrape a profile URL (blog, Substack, personal site), extract topics + stances, then return up to N prediction-market bets across Polymarket / Kalshi / Limitless that match the person's interests. Ranked by stance-alignment + liquidity. Stateless — no URL or content persisted.",
+      "Personalized recommendations via the RecommendAgent (Cloudflare Agents SDK Durable Object). Scrape a profile URL (blog, Substack, personal site), extract topics + stances via Workers AI, return up to N prediction-market bets across Polymarket / Kalshi / Limitless ranked by stance-alignment + liquidity. The agent persists call history in SQLite at the edge; no PII is stored.",
     inputSchema: {
       type: "object",
       properties: {
@@ -247,6 +253,25 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
   }
   if (name === "pm_recommend") {
     const { profile_url, jurisdiction, max_recommendations } = RecommendInputSchema.parse(args);
+    // Dispatch to RecommendAgent (Cloudflare Agents SDK Durable Object) — owns
+    // the URL→recommendations pipeline with persisted state across calls.
+    if (env.RecommendAgent) {
+      const id = env.RecommendAgent.idFromName("pm_recommend:default");
+      const stub = env.RecommendAgent.get(id);
+      const agentRes = await stub.fetch(
+        new Request("https://agent.internal/agents/recommend-agent/pm_recommend:default", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ profile_url, jurisdiction, max_recommendations }),
+        }),
+      );
+      if (!agentRes.ok) {
+        const text = await agentRes.text();
+        return err({ error: "agent_failed", status: agentRes.status, detail: text.slice(0, 500) });
+      }
+      return ok(await agentRes.json());
+    }
+    // Fallback: pre-Agents-SDK path (in case DO binding is missing in dev)
     const report = await recommendFromUrl(profile_url, jurisdiction, max_recommendations, env);
     const decorated = {
       ...report,
