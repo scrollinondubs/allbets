@@ -1,9 +1,14 @@
 import type { VenueAdapter } from "./types.js";
 import type {
+  HistoryPoint,
+  HistoryRange,
+  HistoryStats,
+  MarketHistory,
   NormalizedMarket,
   ResolutionStatus,
   SettlementRisk,
 } from "../schema.js";
+import { rangeToWindow, summarizeSeries } from "./history-util.js";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
 
@@ -293,5 +298,49 @@ export class PolymarketAdapter implements VenueAdapter {
       return ad - bd;
     });
     return list.slice(0, limit);
+  }
+
+  // CLOB /prices-history takes a clobTokenId (the YES outcome's ERC-1155 id),
+  // not the Gamma market id. We resolve the market through getMarket() to
+  // surface tradable_outcome_id, then ask CLOB for the price series.
+  async getHistory(venueMarketId: string, range: HistoryRange): Promise<MarketHistory | null> {
+    const market = await this.getMarket(venueMarketId);
+    if (!market) return null;
+    const yesTokenId = market.outcomes[0]?.tradable_outcome_id;
+    if (!yesTokenId) {
+      return {
+        market,
+        range,
+        resolution_minutes: rangeToWindow(range).resolution_minutes,
+        source_supports_history: false,
+        series: [],
+        stats: null,
+        note: "polymarket market is missing clobTokenIds — likely an event-aggregator entry, not a tradable market",
+      };
+    }
+    const window = rangeToWindow(range);
+    const url = new URL("https://clob.polymarket.com/prices-history");
+    url.searchParams.set("market", yesTokenId);
+    url.searchParams.set("startTs", String(window.start_seconds));
+    url.searchParams.set("endTs", String(window.end_seconds));
+    url.searchParams.set("fidelity", String(window.resolution_minutes));
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`polymarket prices-history failed: ${res.status}`);
+    }
+    const json = (await res.json()) as { history?: Array<{ t: number; p: number }> };
+    const series: HistoryPoint[] = (json.history ?? []).map((pt) => ({
+      ts: new Date(pt.t * 1000).toISOString(),
+      price_yes: pt.p,
+    }));
+    return {
+      market,
+      range,
+      resolution_minutes: window.resolution_minutes,
+      source_supports_history: true,
+      series,
+      stats: summarizeSeries(series),
+    };
   }
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ADAPTERS, discover, fanOutSearch } from "./discovery.js";
 import { PolymarketAdapter } from "./adapters/polymarket.js";
 import type { NormalizedMarket } from "./schema.js";
+import { HistoryRangeSchema } from "./schema.js";
 
 export const VenueArgSchema = z
   .array(z.enum(["polymarket", "kalshi", "limitless"]))
@@ -30,6 +31,11 @@ export const QuoteInputSchema = z.object({
 
 export const DisputesActiveInputSchema = z.object({
   limit: z.number().int().positive().max(50).default(20),
+});
+
+export const HistoryInputSchema = z.object({
+  market: z.string().min(1),
+  range: HistoryRangeSchema.default("24h"),
 });
 
 export const TOOL_DEFS = [
@@ -76,6 +82,27 @@ export const TOOL_DEFS = [
       properties: {
         limit: { type: "number", default: 20 },
       },
+    },
+  },
+  {
+    name: "pm_history",
+    description:
+      "Price + volume time series for a single market. Pass the same `market` shape pm_quote accepts (URL or 'venue:id'). Returns the current normalized market plus a series of {ts, price_yes, volume_usd?} buckets and OHLC stats (open/close/high/low/change_pct). Use this to detect 'this market moved against me overnight' or 'this market just spiked' — the trust-shape badge is a snapshot, this is the story behind it. Polymarket + Kalshi supported; Limitless returns an honest empty result with the current snapshot since their public API does not expose history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        market: {
+          type: "string",
+          description: "Market URL or 'venue:id' shorthand (same forms pm_quote accepts).",
+        },
+        range: {
+          type: "string",
+          enum: ["1h", "24h", "7d", "30d", "all"],
+          default: "24h",
+          description: "Time window. Bucket size is auto-tuned to keep the series in the 24-60 point range so it stays LLM-digestible.",
+        },
+      },
+      required: ["market"],
     },
   },
   {
@@ -184,6 +211,30 @@ export async function runTool(name: string, args: unknown): Promise<unknown> {
       note: "Polymarket UMA-flagged markets only. Kalshi and Limitless settle deterministically and have no analogous dispute risk.",
       markets,
     };
+  }
+  if (name === "pm_history") {
+    const { market, range } = HistoryInputSchema.parse(args);
+    const ref = resolveMarketRef(market);
+    if (!ref) {
+      return {
+        error: "could_not_parse_market_ref",
+        input: market,
+        accepted_forms: [
+          "venue:id (e.g. 'polymarket:540816', 'kalshi:KXFEDMTG-26JUN-T5')",
+          "polymarket.com URL",
+          "kalshi.com URL",
+          "limitless.exchange URL",
+        ],
+      };
+    }
+    const adapter = ADAPTERS.find((a) => a.venue === ref.venue);
+    if (!adapter) return { error: "unknown_venue", venue: ref.venue };
+    if (typeof adapter.getHistory !== "function") {
+      return { error: "history_not_implemented_for_venue", venue: ref.venue };
+    }
+    const result = await adapter.getHistory(ref.id, range);
+    if (!result) return { error: "market_not_found", venue: ref.venue, id: ref.id };
+    return result;
   }
   if (name === "pm_search") {
     const { query, limit_per_venue, venues } = SearchInputSchema.parse(args);
