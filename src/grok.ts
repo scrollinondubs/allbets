@@ -12,7 +12,7 @@
 // reasoning — and only Grok provides the firehose.
 
 const XAI_RESPONSES_URL = "https://api.x.ai/v1/responses";
-const FETCH_TIMEOUT_MS = 30_000; // x_search internally makes multiple searches
+const FETCH_TIMEOUT_MS = 90_000; // x_search internally makes multiple searches; gpt-grok-style tool loop can be slow
 
 export interface SignalPost {
   handle?: string;
@@ -123,7 +123,7 @@ export async function grokSearchX(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "grok-4.3",
+      model: "grok-4-fast",
       input: [{ role: "user", content: buildPrompt(query, hoursBack) }],
       tools: [{ type: "x_search" }],
     }),
