@@ -1,5 +1,11 @@
 import type { VenueAdapter } from "./types.js";
-import type { NormalizedMarket, ResolutionStatus } from "../schema.js";
+import type {
+  HistoryRange,
+  MarketHistory,
+  NormalizedMarket,
+  ResolutionStatus,
+} from "../schema.js";
+import { rangeToWindow } from "./history-util.js";
 
 const LIMITLESS_BASE = "https://api.limitless.exchange";
 const FETCH_TIMEOUT_MS = 8000;
@@ -151,5 +157,23 @@ export class LimitlessAdapter implements VenueAdapter {
     if (!res.ok) throw new Error(`limitless listActive failed: ${res.status}`);
     const list = unwrap(await res.json());
     return list.slice(0, limit).map(toNormalized);
+  }
+
+  // Limitless does not currently expose price history via public API. Most of
+  // their volume is auto-generated 15-min/1h Pyth-tracking markets that recycle
+  // before any meaningful series accumulates. Return an honest empty result
+  // with the current snapshot so the agent can still reason about the market.
+  async getHistory(venueMarketId: string, range: HistoryRange): Promise<MarketHistory | null> {
+    const market = await this.getMarket(venueMarketId);
+    if (!market) return null;
+    return {
+      market,
+      range,
+      resolution_minutes: rangeToWindow(range).resolution_minutes,
+      source_supports_history: false,
+      series: [],
+      stats: null,
+      note: "limitless does not expose price history via public API. Most lumy-generated markets recycle every 15-60 min so historical series would be near-empty regardless. Use the current snapshot in `market` for decision context.",
+    };
   }
 }

@@ -1,5 +1,12 @@
 import type { VenueAdapter } from "./types.js";
-import type { NormalizedMarket, ResolutionStatus } from "../schema.js";
+import type {
+  HistoryPoint,
+  HistoryRange,
+  MarketHistory,
+  NormalizedMarket,
+  ResolutionStatus,
+} from "../schema.js";
+import { rangeToWindow, summarizeSeries } from "./history-util.js";
 
 const KALSHI_BASE = "https://api.elections.kalshi.com/trade-api/v2";
 const FETCH_TIMEOUT_MS = 8000;
@@ -263,5 +270,78 @@ export class KalshiAdapter implements VenueAdapter {
     const events = await fetchEventsByCursor(200);
     const flat = flattenMarkets(events);
     return flat.slice(0, limit).map((x) => toNormalized(x.market, x.eventTitle));
+  }
+
+  // /series/{series_ticker}/markets/{ticker}/candlesticks returns OHLC + volume
+  // per period. series_ticker is the prefix-before-first-dash of the market
+  // ticker (e.g. KXNEWPOPE-70-PPIZ → series=KXNEWPOPE). Bare tickers without
+  // dashes don't have a series — fall back to empty-history with a note.
+  async getHistory(venueMarketId: string, range: HistoryRange): Promise<MarketHistory | null> {
+    const market = await this.getMarket(venueMarketId);
+    if (!market) return null;
+    const ticker = market.venue_market_id;
+    const window = rangeToWindow(range);
+    const seriesTicker = ticker.includes("-") ? ticker.split("-")[0] : null;
+    if (!seriesTicker) {
+      return {
+        market,
+        range,
+        resolution_minutes: window.resolution_minutes,
+        source_supports_history: false,
+        series: [],
+        stats: null,
+        note: `cannot derive kalshi series_ticker from market ticker '${ticker}' (no dash separator)`,
+      };
+    }
+    const url = new URL(
+      `${KALSHI_BASE}/series/${encodeURIComponent(seriesTicker)}/markets/${encodeURIComponent(ticker)}/candlesticks`,
+    );
+    url.searchParams.set("start_ts", String(window.start_seconds));
+    url.searchParams.set("end_ts", String(window.end_seconds));
+    url.searchParams.set("period_interval", String(window.resolution_minutes));
+
+    const res = await fetch(url, timed());
+    if (!res.ok) {
+      return {
+        market,
+        range,
+        resolution_minutes: window.resolution_minutes,
+        source_supports_history: false,
+        series: [],
+        stats: null,
+        note: `kalshi candlestick endpoint returned ${res.status} for series='${seriesTicker}', market='${ticker}' — series may not exist or this market may not have candlestick data`,
+      };
+    }
+    const json = (await res.json()) as {
+      candlesticks?: Array<{
+        end_period_ts: number;
+        volume_fp?: string | number;
+        price?: { previous_dollars?: string };
+        yes_bid?: { close_dollars?: string };
+        yes_ask?: { close_dollars?: string };
+      }>;
+    };
+    const series: HistoryPoint[] = (json.candlesticks ?? []).map((c) => {
+      const bid = Number(c.yes_bid?.close_dollars ?? "");
+      const ask = Number(c.yes_ask?.close_dollars ?? "");
+      let price = Number(c.price?.previous_dollars ?? "0");
+      if (Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0) {
+        price = (bid + ask) / 2;
+      }
+      const vol = Number(c.volume_fp ?? "");
+      return {
+        ts: new Date(c.end_period_ts * 1000).toISOString(),
+        price_yes: Math.max(0, Math.min(1, price)),
+        ...(Number.isFinite(vol) && vol > 0 ? { volume_usd: vol } : {}),
+      };
+    });
+    return {
+      market,
+      range,
+      resolution_minutes: window.resolution_minutes,
+      source_supports_history: true,
+      series,
+      stats: summarizeSeries(series),
+    };
   }
 }
