@@ -85,17 +85,16 @@ export const HistoryInputSchema = z.object({
   range: HistoryRangeSchema.default("24h"),
 });
 
-<<<<<<< feat/v0.1.9-pm-ev
 export const EvInputSchema = z.object({
   market: z.string().min(1),
   p_yes: z.number().min(0).max(1).optional(),
   bankroll_usd: z.number().nonnegative().optional(),
   kelly_fraction: z.number().min(0).max(1).default(DEFAULT_KELLY_FRACTION),
-=======
+});
+
 export const SignalInputSchema = z.object({
   query: z.string().min(2),
   hours_back: z.union([z.literal(1), z.literal(6), z.literal(24), z.literal(72)]).default(24),
->>>>>>> init
 });
 
 export const TOOL_DEFS = [
