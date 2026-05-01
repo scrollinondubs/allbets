@@ -18,11 +18,24 @@ allbets does steps 1-4 in a single tool call.
 
 ## Tools
 
-- **`pm_discover(hypothesis, jurisdiction?)`** — primary tool. Fan out across 3 venues, return what each has on your hypothesis + jurisdiction notes + recommended trade-here URL. Use this first.
-- **`pm_search(query, venues?)`** — raw cross-venue search. Less curated than `pm_discover`.
-- **`pm_list_active(venues?)`** — most active markets per venue, for browsing.
+| Tool | Use for |
+|---|---|
+| `pm_discover(hypothesis, jurisdiction?)` | **Primary.** Fan out across 3 venues, return what each has + jurisdiction notes + recommended trade-here URL. |
+| `pm_quote(market_url_or_id)` | Single-market deep-dive with full **settlement-risk badge** (UMA dispute window, bond, resolution status). Use after `pm_discover` to see the trust shape behind a price. |
+| `pm_disputes_active(limit?)` | List Polymarket markets currently UMA-flagged (proposed-but-not-finalized OR actively disputed). Polymarket flipped >$30M of resolutions in 2025 — agents holding positions need to know. |
+| `pm_search(query, venues?)` | Raw cross-venue search. Less curated than `pm_discover`. |
+| `pm_list_active(venues?)` | Most active markets per venue, for browsing. |
 
 All reads are public-API only. **Trading is intentionally not in scope** — identity, custody, and funding fragmentation across the three venues makes a unified write-API a fool's errand. allbets is the *information* primitive; trade execution stays with the agent's existing per-venue tools.
+
+## Settlement risk
+
+Every quote carries a `settlement_risk: "low" | "moderate" | "high"` badge plus `settlement_risk_reason`. Computed for all venues uniformly. Kalshi (centralized) and Limitless (Pyth-deterministic) are `low` by default — that's a feature, not noise: the agent has confirmation that the settlement model is reliable.
+
+For Polymarket (UMA Optimistic Oracle):
+- **HIGH:** `uma_resolution_statuses` contains `proposed` or `disputed`, OR the dispute window is currently open
+- **MODERATE:** `custom_liveness_seconds > 86400` (>24h dispute window), OR `uma_bond < 500` USDC (under-collateralized vs default), OR resolution `description` is thin (<200 chars; ambiguity proxy)
+- **LOW:** none of the above
 
 ## Normalized schema
 

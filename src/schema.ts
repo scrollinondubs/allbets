@@ -30,6 +30,10 @@ export const ResolutionStatusSchema = z.enum([
 
 export type Chain = "polygon" | "base" | "ethereum" | "centralized";
 
+export type SettlementRisk = "low" | "moderate" | "high";
+
+export const SettlementRiskSchema = z.enum(["low", "moderate", "high"]);
+
 export const NormalizedMarketSchema = z.object({
   venue: VenueSchema,
   venue_market_id: z.string(),
@@ -52,6 +56,12 @@ export const NormalizedMarketSchema = z.object({
   ends_at: z.string().optional(),
   resolution_status: ResolutionStatusSchema,
   dispute_open_until: z.string().optional(),
+  settlement_risk: SettlementRiskSchema,
+  settlement_risk_reason: z.string(),
+  uma_resolution_statuses: z.array(z.string()).optional(),
+  uma_bond: z.number().nonnegative().optional(),
+  uma_reward: z.number().nonnegative().optional(),
+  custom_liveness_seconds: z.number().nonnegative().optional(),
   chain: z.enum(["polygon", "base", "ethereum", "centralized"]),
   collateral_token: z.string(),
   restricted_jurisdictions: z.array(z.string()).optional(),
