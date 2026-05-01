@@ -3,6 +3,7 @@ import { ADAPTERS, discover, fanOutSearch } from "./discovery.js";
 import { PolymarketAdapter } from "./adapters/polymarket.js";
 import { recommendFromUrl } from "./recommend.js";
 import { decorateMarket, decorateMarkets, type AffiliateConfig } from "./affiliate.js";
+import { decorateWithImages } from "./imagen.js";
 import type { NormalizedMarket } from "./schema.js";
 
 interface WorkersAIBinding {
@@ -18,6 +19,7 @@ interface ToolEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
+  OPENAI_API_KEY?: string;
   POLYMARKET_REF_CODE?: string;
   KALSHI_REF_CODE?: string;
   LIMITLESS_REF_CODE?: string;
@@ -41,31 +43,37 @@ export const DiscoverInputSchema = z.object({
   hypothesis: z.string().min(2),
   jurisdiction: z.enum(["us", "non_us", "unknown"]).default("unknown"),
   limit_per_venue: z.number().int().positive().max(30).default(15),
+  visual: z.boolean().default(false),
 });
 
 export const SearchInputSchema = z.object({
   query: z.string().min(2),
   limit_per_venue: z.number().int().positive().max(50).default(10),
   venues: VenueArgSchema,
+  visual: z.boolean().default(false),
 });
 
 export const ListActiveInputSchema = z.object({
   limit_per_venue: z.number().int().positive().max(50).default(10),
   venues: VenueArgSchema,
+  visual: z.boolean().default(false),
 });
 
 export const QuoteInputSchema = z.object({
   market: z.string().min(1),
+  visual: z.boolean().default(false),
 });
 
 export const DisputesActiveInputSchema = z.object({
   limit: z.number().int().positive().max(50).default(20),
+  visual: z.boolean().default(false),
 });
 
 export const RecommendInputSchema = z.object({
   profile_url: z.string().url(),
   jurisdiction: z.enum(["us", "non_us", "unknown"]).default("unknown"),
   max_recommendations: z.number().int().positive().max(20).default(10),
+  visual: z.boolean().default(false),
 });
 
 export const TOOL_DEFS = [
@@ -84,6 +92,7 @@ export const TOOL_DEFS = [
           description: "User's regulatory jurisdiction. US blocks Polymarket-international; non-US blocks Kalshi.",
         },
         limit_per_venue: { type: "number", default: 15 },
+        visual: { type: "boolean", default: false, description: "If true, attach an OpenAI-generated editorial image to each market in the response. Requires OPENAI_API_KEY Worker secret. Costs ~$0.04 per image." },
       },
       required: ["hypothesis"],
     },
@@ -247,14 +256,32 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
   const affiliateConfig = affiliateConfigFromEnv(env);
 
   if (name === "pm_discover") {
-    const { hypothesis, jurisdiction, limit_per_venue } = DiscoverInputSchema.parse(args);
+    const { hypothesis, jurisdiction, limit_per_venue, visual } = DiscoverInputSchema.parse(args);
     const report = await discover(hypothesis, jurisdiction, limit_per_venue);
-    return ok(decorateDiscoverReport(report, affiliateConfig));
+    let decorated = decorateDiscoverReport(report, affiliateConfig);
+    if (visual) {
+      const allMarkets: NormalizedMarket[] = [];
+      decorated.per_venue.forEach((v) => {
+        if (v.best_match) allMarkets.push(v.best_match);
+      });
+      const { markets: withImages, warnings } = await decorateWithImages(allMarkets, env.OPENAI_API_KEY, true);
+      const imageByKey = new Map<string, NormalizedMarket>();
+      withImages.forEach((m) => imageByKey.set(`${m.venue}:${m.venue_market_id}`, m));
+      decorated = {
+        ...decorated,
+        per_venue: decorated.per_venue.map((v) => {
+          if (!v.best_match) return v;
+          const enriched = imageByKey.get(`${v.best_match.venue}:${v.best_match.venue_market_id}`);
+          return enriched ? { ...v, best_match: enriched } : v;
+        }),
+      } as typeof decorated;
+      if (warnings.length > 0) (decorated as typeof decorated & { warnings?: string[] }).warnings = warnings;
+    }
+    return ok(decorated);
   }
   if (name === "pm_recommend") {
-    const { profile_url, jurisdiction, max_recommendations } = RecommendInputSchema.parse(args);
-    // Dispatch to RecommendAgent (Cloudflare Agents SDK Durable Object) — owns
-    // the URL→recommendations pipeline with persisted state across calls.
+    const { profile_url, jurisdiction, max_recommendations, visual } = RecommendInputSchema.parse(args);
+    let result: { recommendations: Array<{ market: NormalizedMarket; [key: string]: unknown }>; [key: string]: unknown };
     if (env.RecommendAgent) {
       const id = env.RecommendAgent.idFromName("pm_recommend:default");
       const stub = env.RecommendAgent.get(id);
@@ -269,21 +296,33 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
         const text = await agentRes.text();
         return err({ error: "agent_failed", status: agentRes.status, detail: text.slice(0, 500) });
       }
-      return ok(await agentRes.json());
+      result = (await agentRes.json()) as typeof result;
+    } else {
+      const report = await recommendFromUrl(profile_url, jurisdiction, max_recommendations, env);
+      result = {
+        ...report,
+        recommendations: report.recommendations.map((rec) => ({
+          ...rec,
+          market: decorateMarket(rec.market, affiliateConfig),
+        })),
+      };
     }
-    // Fallback: pre-Agents-SDK path (in case DO binding is missing in dev)
-    const report = await recommendFromUrl(profile_url, jurisdiction, max_recommendations, env);
-    const decorated = {
-      ...report,
-      recommendations: report.recommendations.map((rec) => ({
-        ...rec,
-        market: decorateMarket(rec.market, affiliateConfig),
-      })),
-    };
-    return ok(decorated);
+    if (visual) {
+      const markets = result.recommendations.map((r) => r.market);
+      const { markets: withImages, warnings } = await decorateWithImages(markets, env.OPENAI_API_KEY, true);
+      result = {
+        ...result,
+        recommendations: result.recommendations.map((rec, i) => ({
+          ...rec,
+          market: withImages[i] ?? rec.market,
+        })),
+      };
+      if (warnings.length > 0) (result as { warnings?: string[] }).warnings = warnings;
+    }
+    return ok(result);
   }
   if (name === "pm_quote") {
-    const { market } = QuoteInputSchema.parse(args);
+    const { market, visual } = QuoteInputSchema.parse(args);
     const ref = resolveMarketRef(market);
     if (!ref) {
       return err({
@@ -301,7 +340,14 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     if (!adapter) return err({ error: "unknown_venue", venue: ref.venue });
     const m = await adapter.getMarket(ref.id);
     if (!m) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
-    return ok({ quote: decorateMarket(m, affiliateConfig) });
+    let decorated = decorateMarket(m, affiliateConfig);
+    const warnings: string[] = [];
+    if (visual) {
+      const result = await decorateWithImages([decorated], env.OPENAI_API_KEY, true);
+      decorated = result.markets[0] ?? decorated;
+      warnings.push(...result.warnings);
+    }
+    return ok(warnings.length > 0 ? { quote: decorated, warnings } : { quote: decorated });
   }
   if (name === "pm_disputes_active") {
     const { limit } = DisputesActiveInputSchema.parse(args);

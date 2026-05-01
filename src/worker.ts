@@ -30,6 +30,7 @@ interface WorkerEnv {
   POLYMARKET_REF_CODE?: string;
   KALSHI_REF_CODE?: string;
   LIMITLESS_REF_CODE?: string;
+  OPENAI_API_KEY?: string;
   AI?: WorkersAIBinding;
   RecommendAgent?: DurableObjectNamespace;
 }
