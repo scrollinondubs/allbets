@@ -103,3 +103,35 @@ export const DiscoveryReportSchema = z.object({
 });
 
 export type DiscoveryReport = z.infer<typeof DiscoveryReportSchema>;
+
+export const HistoryRangeSchema = z.enum(["1h", "24h", "7d", "30d", "all"]);
+export type HistoryRange = z.infer<typeof HistoryRangeSchema>;
+
+export const HistoryPointSchema = z.object({
+  ts: z.string(),
+  price_yes: z.number().min(0).max(1),
+  volume_usd: z.number().nonnegative().optional(),
+});
+export type HistoryPoint = z.infer<typeof HistoryPointSchema>;
+
+export const HistoryStatsSchema = z.object({
+  open: z.number().min(0).max(1),
+  close: z.number().min(0).max(1),
+  high: z.number().min(0).max(1),
+  low: z.number().min(0).max(1),
+  change_pct: z.number(),
+  samples: z.number().int().nonnegative(),
+  volume_total_usd: z.number().nonnegative().optional(),
+});
+export type HistoryStats = z.infer<typeof HistoryStatsSchema>;
+
+export const MarketHistorySchema = z.object({
+  market: NormalizedMarketSchema,
+  range: HistoryRangeSchema,
+  resolution_minutes: z.number().int().positive(),
+  source_supports_history: z.boolean(),
+  series: z.array(HistoryPointSchema),
+  stats: HistoryStatsSchema.nullable(),
+  note: z.string().optional(),
+});
+export type MarketHistory = z.infer<typeof MarketHistorySchema>;

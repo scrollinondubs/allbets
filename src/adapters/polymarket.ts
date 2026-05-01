@@ -1,9 +1,13 @@
 import type { VenueAdapter } from "./types.js";
 import type {
+  HistoryPoint,
+  HistoryRange,
+  MarketHistory,
   NormalizedMarket,
   ResolutionStatus,
   SettlementRisk,
 } from "../schema.js";
+import { rangeToWindow, summarizeSeries } from "./history-util.js";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
 const FETCH_TIMEOUT_MS = 8000;
@@ -272,6 +276,58 @@ export class PolymarketAdapter implements VenueAdapter {
     if (!res.ok) throw new Error(`polymarket listActive failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket[];
     return json.slice(0, limit).map(toNormalized);
+  }
+
+  // CLOB /prices-history takes a clobTokenId (the YES outcome's ERC-1155 id),
+  // not the Gamma market id. Resolve through getMarket() to get tradable_outcome_id,
+  // then ask CLOB for the price series.
+  async getHistory(venueMarketId: string, range: HistoryRange): Promise<MarketHistory | null> {
+    const market = await this.getMarket(venueMarketId);
+    if (!market) return null;
+    const yesTokenId = market.outcomes[0]?.tradable_outcome_id;
+    const window = rangeToWindow(range);
+    if (!yesTokenId) {
+      return {
+        market,
+        range,
+        resolution_minutes: window.resolution_minutes,
+        source_supports_history: false,
+        series: [],
+        stats: null,
+        note: "polymarket market is missing clobTokenIds — likely an event-aggregator entry, not a tradable market",
+      };
+    }
+    const url = new URL("https://clob.polymarket.com/prices-history");
+    url.searchParams.set("market", yesTokenId);
+    url.searchParams.set("startTs", String(window.start_seconds));
+    url.searchParams.set("endTs", String(window.end_seconds));
+    url.searchParams.set("fidelity", String(window.resolution_minutes));
+
+    const res = await fetch(url, timed());
+    if (!res.ok) {
+      return {
+        market,
+        range,
+        resolution_minutes: window.resolution_minutes,
+        source_supports_history: false,
+        series: [],
+        stats: null,
+        note: `polymarket prices-history returned ${res.status} for clobTokenId='${yesTokenId.slice(0, 12)}...'`,
+      };
+    }
+    const json = (await res.json()) as { history?: Array<{ t: number; p: number }> };
+    const series: HistoryPoint[] = (json.history ?? []).map((pt) => ({
+      ts: new Date(pt.t * 1000).toISOString(),
+      price_yes: pt.p,
+    }));
+    return {
+      market,
+      range,
+      resolution_minutes: window.resolution_minutes,
+      source_supports_history: true,
+      series,
+      stats: summarizeSeries(series),
+    };
   }
 
   async listDisputed(limit = 20): Promise<NormalizedMarket[]> {

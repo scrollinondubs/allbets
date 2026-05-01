@@ -4,6 +4,7 @@ import { PolymarketAdapter } from "./adapters/polymarket.js";
 import { recommendFromUrl } from "./recommend.js";
 import { decorateMarket, decorateMarkets, type AffiliateConfig } from "./affiliate.js";
 import { decorateWithImages } from "./imagen.js";
+import { HistoryRangeSchema } from "./schema.js";
 import type { NormalizedMarket } from "./schema.js";
 
 interface WorkersAIBinding {
@@ -76,6 +77,11 @@ export const RecommendInputSchema = z.object({
   visual: z.boolean().default(false),
 });
 
+export const HistoryInputSchema = z.object({
+  market: z.string().min(1),
+  range: HistoryRangeSchema.default("24h"),
+});
+
 export const TOOL_DEFS = [
   {
     name: "pm_discover",
@@ -107,6 +113,27 @@ export const TOOL_DEFS = [
         market: {
           type: "string",
           description: "Market URL or 'venue:id' shorthand. Examples: 'https://polymarket.com/event/...', 'polymarket:540816', 'kalshi:KXFEDMTG-26JUN-T5', 'limitless:0x...'",
+        },
+      },
+      required: ["market"],
+    },
+  },
+  {
+    name: "pm_history",
+    description:
+      "Price + volume time series for a single market. Pass the same `market` shape pm_quote accepts (URL or 'venue:id'). Returns the current normalized market plus a series of {ts, price_yes, volume_usd?} buckets and OHLC stats (open/close/high/low/change_pct). Use this to detect 'this market moved against me overnight' or 'this market just spiked' — the trust-shape badge is a snapshot, this is the trajectory behind it. Polymarket + Kalshi supported; Limitless returns an honest empty result with the current snapshot since their public API does not expose history.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        market: {
+          type: "string",
+          description: "Market URL or 'venue:id' shorthand (same forms pm_quote accepts).",
+        },
+        range: {
+          type: "string",
+          enum: ["1h", "24h", "7d", "30d", "all"],
+          default: "24h",
+          description: "Time window. Bucket size is auto-tuned to keep the series in the 24-60 point range so it stays LLM-digestible.",
         },
       },
       required: ["market"],
@@ -348,6 +375,30 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
       warnings.push(...result.warnings);
     }
     return ok(warnings.length > 0 ? { quote: decorated, warnings } : { quote: decorated });
+  }
+  if (name === "pm_history") {
+    const { market, range } = HistoryInputSchema.parse(args);
+    const ref = resolveMarketRef(market);
+    if (!ref) {
+      return err({
+        error: "could_not_parse_market_ref",
+        input: market,
+        accepted_forms: [
+          "venue:id (e.g. 'polymarket:540816', 'kalshi:KXFEDMTG-26JUN-T5')",
+          "polymarket.com URL",
+          "kalshi.com URL",
+          "limitless.exchange URL",
+        ],
+      });
+    }
+    const adapter = ADAPTERS.find((a) => a.venue === ref.venue);
+    if (!adapter) return err({ error: "unknown_venue", venue: ref.venue });
+    if (typeof adapter.getHistory !== "function") {
+      return err({ error: "history_not_implemented_for_venue", venue: ref.venue });
+    }
+    const result = await adapter.getHistory(ref.id, range);
+    if (!result) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
+    return ok(result);
   }
   if (name === "pm_disputes_active") {
     const { limit } = DisputesActiveInputSchema.parse(args);
