@@ -64,6 +64,8 @@ function toNormalized(m: LimitlessMarket): NormalizedMarket {
     open_interest_usd: n(m.openInterest),
     ends_at: m.expirationDate,
     resolution_status: inferResolutionStatus(m),
+    settlement_risk: "low",
+    settlement_risk_reason: "limitless deterministic pyth oracle resolution",
     chain: "base",
     collateral_token: "USDC",
     is_parlay: false,

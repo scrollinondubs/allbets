@@ -78,6 +78,8 @@ function toNormalized(m: KalshiMarket): NormalizedMarket {
     open_interest_usd: n(m.open_interest_fp),
     ends_at: m.close_time,
     resolution_status: statusToResolution(m.status),
+    settlement_risk: "low",
+    settlement_risk_reason: "kalshi central clearinghouse, no dispute window",
     chain: "centralized",
     collateral_token: "USD",
     restricted_jurisdictions: ["non-US"],

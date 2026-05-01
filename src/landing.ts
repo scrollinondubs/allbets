@@ -418,7 +418,15 @@ export const LANDING_HTML = `<!doctype html>
 
       <div class="feature-row">
         <div class="label">pm_discover</div>
-        <div class="body">Hand it a hypothesis and a jurisdiction. Returns what each venue lists, the depth of liquidity, the resolution model, and a single recommended trade-here URL. The primary tool.</div>
+        <div class="body">Hand it a hypothesis and a jurisdiction. Returns what each venue lists, the depth of liquidity, the resolution model, and a single recommended trade-here URL. The primary entry tool.</div>
+      </div>
+      <div class="feature-row">
+        <div class="label">pm_quote</div>
+        <div class="body">Single-market deep-dive with the <em>settlement-risk badge</em>. Pass a Polymarket / Kalshi / Limitless URL or a <code>venue:id</code> shorthand. Returns the full normalized market plus UMA dispute window, bond, and resolution status. The trust shape behind the price.</div>
+      </div>
+      <div class="feature-row">
+        <div class="label">pm_disputes_active</div>
+        <div class="body">Polymarket markets currently UMA-flagged (proposed-but-not-finalized or actively disputed). Polymarket flipped over $30M of supposedly-final resolutions in 2025. Every other MCP shows the stale number; this one surfaces the risk.</div>
       </div>
       <div class="feature-row">
         <div class="label">pm_search</div>
@@ -429,8 +437,8 @@ export const LANDING_HTML = `<!doctype html>
         <div class="body">Most active markets per venue, ranked by volume. For browsing.</div>
       </div>
       <div class="feature-row">
-        <div class="label">normalized schema</div>
-        <div class="body">Every market comes back in one shape: outcome probabilities, bid/ask, liquidity in USD, resolution status, dispute window for UMA-settled markets, chain, collateral token, restricted jurisdictions, and a tradable outcome ID for downstream execution.</div>
+        <div class="label">settlement risk</div>
+        <div class="body">Every quote carries <code>settlement_risk: low | moderate | high</code> with a human-readable reason. Computed uniformly for all venues. UMA dispute windows, bond size, and resolution-rule thinness all feed in. The agent capability that didn&apos;t exist before.</div>
       </div>
     </section>
 
