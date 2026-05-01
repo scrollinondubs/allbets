@@ -1,0 +1,81 @@
+index ac8f68b..567cc87 100644
+--- a/src/landing.ts
++++ b/src/landing.ts
+@@ -493,7 +493,40 @@ export const LANDING_HTML = `<!doctype html>
+     <hr class="rule" />
+ 
+     <section>
+-      <h2><span class="num">03</span>What it deliberately is not</h2>
++      <h2><span class="num">03</span>Personalized discovery</h2>
++      <p>
++        Hand <code>pm_recommend</code> your blog, Substack, or personal-site URL. It scrapes the page, extracts your topics and stances with an open-source LLM, then returns up to 10 prediction-market bets across all three venues that match what you actually care about.
++      </p>
++      <p class="muted">
++        Pipeline: Firecrawl scrape &rarr; Workers AI Llama-3.3-70b structured extraction &rarr; per-topic <code>pm_discover</code> fan-out &rarr; rank by stance alignment, liquidity, settlement risk. Stateless. No URL or extracted content is persisted.
++      </p>
++
++      <div class="code-wrap" data-copy="curl -X POST https://allbets.dev/mcp \&#10;  -H 'Content-Type: application/json' \&#10;  -d '{&#10;    &quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;tools/call&quot;,&#10;    &quot;params&quot;:{&#10;      &quot;name&quot;:&quot;pm_recommend&quot;,&#10;      &quot;arguments&quot;:{&#10;        &quot;profile_url&quot;:&quot;https://scrollinondubs.substack.com&quot;,&#10;        &quot;jurisdiction&quot;:&quot;non_us&quot;&#10;      }&#10;    }&#10;  }'">
++        <button class="copy-btn" data-state="idle" aria-label="Copy code"><span class="copy-icon-default"></span><span class="copy-icon-done"></span></button>
++        <pre class="code"><span class="c"># pm_recommend on a personal site</span>
++<span class="k">curl</span> -X POST https://allbets.dev/mcp \\
++  -H <span class="s">"Content-Type: application/json"</span> \\
++  -d <span class="s">'{
++    "jsonrpc":"2.0","id":1,"method":"tools/call",
++    "params":{
++      "name":"pm_recommend",
++      "arguments":{
++        "profile_url":"https://scrollinondubs.substack.com",
++        "jurisdiction":"non_us"
++      }
++    }
++  }'</span></pre>
++      </div>
++
++      <p class="muted" style="margin-top: 24px;">
++        Sample run on a Substack about AI tooling returned: <em>Will Anthropic have the best AI model end of May?</em> (82.5% YES, $209K volume), <em>Will OpenAI have the best AI model end of May?</em> (2.2% YES, $255K volume), and <em>Will Anthropic flip BTC by December 31?</em> (41.5% YES, $85K volume). Three signal-grade matches, zero noise.
++      </p>
++    </section>
++
++    <hr class="rule" />
++
++    <section>
++      <h2><span class="num">04</span>What it deliberately is not</h2>
+       <p>
+         allbets is the <em>information</em> primitive. Not the execution primitive.
+       </p>
+@@ -508,7 +541,7 @@ export const LANDING_HTML = `<!doctype html>
+     <hr class="rule" />
+ 
+     <section id="try">
+-      <h2><span class="num">04</span>Try it</h2>
++      <h2><span class="num">05</span>Try it</h2>
+       <p>The MCP endpoint is live now at <strong>https://allbets.dev/mcp</strong>. JSON-RPC 2.0 over HTTP POST.</p>
+ 
+       <div class="code-wrap" data-copy="# list tools&#10;curl -X POST https://allbets.dev/mcp \\&#10;  -H 'Content-Type: application/json' \\&#10;  -d '{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;tools/list&quot;}'&#10;&#10;# discover what is tradable on a hypothesis&#10;curl -X POST https://allbets.dev/mcp \\&#10;  -H 'Content-Type: application/json' \\&#10;  -d '{&#10;    &quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;tools/call&quot;,&#10;    &quot;params&quot;:{&#10;      &quot;name&quot;:&quot;pm_discover&quot;,&#10;      &quot;arguments&quot;:{&#10;        &quot;hypothesis&quot;:&quot;Powell cuts rates in June&quot;,&#10;        &quot;jurisdiction&quot;:&quot;non_us&quot;&#10;      }&#10;    }&#10;  }'">
+@@ -542,7 +575,7 @@ export const LANDING_HTML = `<!doctype html>
+     <hr class="rule" />
+ 
+     <section>
+-      <h2><span class="num">05</span>Connect from Claude Code</h2>
++      <h2><span class="num">06</span>Connect from Claude Code</h2>
+       <p>Claude Code (the terminal-native agent) speaks HTTP MCP transport directly &mdash; no shim. Add to your project&apos;s <code>.mcp.json</code> at the repo root:</p>
+ 
+       <div class="code-wrap" data-copy='{
+@@ -570,7 +603,7 @@ export const LANDING_HTML = `<!doctype html>
+     <hr class="rule" />
+ 
+     <section>
+-      <h2><span class="num">06</span>Connect from Claude Desktop</h2>
++      <h2><span class="num">07</span>Connect from Claude Desktop</h2>
+       <p>Claude Desktop only speaks stdio natively, so we bridge through <code>mcp-remote</code>. Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>:</p>
+ 
+       <div class="code-wrap" data-copy='{
+@@ -598,7 +631,7 @@ export const LANDING_HTML = `<!doctype html>
+     <hr class="rule" />
+ 
+     <section>
+-      <h2><span class="num">07</span>The code</h2>
++      <h2><span class="num">08</span>The code</h2>
+       <p>
+         Open-source under MIT at <a href="https://github.com/scrollinondubs/allbets" style="color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent-dim);" target="_blank" rel="noopener">github.com/scrollinondubs/allbets</a>. TypeScript. Cloudflare Workers + Hono. ~600 lines including all three adapters.
+       </p>
