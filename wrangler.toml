@@ -14,3 +14,7 @@ preview_urls = true
 
 [observability]
 enabled = true
+
+# Workers AI: Llama-3.3-70b for pm_recommend topic extraction (replaces personal Anthropic key for cost isolation)
+[ai]
+binding = "AI"

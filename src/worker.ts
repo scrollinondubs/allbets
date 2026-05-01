@@ -9,7 +9,18 @@ interface JsonRpcRequest {
   params?: Record<string, unknown>;
 }
 
-const app = new Hono();
+interface WorkersAIBinding {
+  run(model: string, input: Record<string, unknown>): Promise<unknown>;
+}
+
+interface WorkerEnv {
+  FIRECRAWL_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  EXA_API_KEY?: string;
+  AI?: WorkersAIBinding;
+}
+
+const app = new Hono<{ Bindings: WorkerEnv }>();
 
 app.get("/", (c) =>
   c.html(LANDING_HTML, 200, {
@@ -73,7 +84,7 @@ app.post("/mcp", async (c) => {
         const params = body.params ?? {};
         const name = params.name as string;
         const args = (params.arguments as Record<string, unknown>) ?? {};
-        const result = await runTool(name, args);
+        const result = await runTool(name, args, c.env);
         return respond({
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         });

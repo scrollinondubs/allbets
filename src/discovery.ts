@@ -5,6 +5,41 @@ import type { VenueAdapter } from "./adapters/types.js";
 import type { DiscoveryReport, NormalizedMarket, VenueDiscoveryResult } from "./schema.js";
 import { bestMatchPerVenue } from "./matcher.js";
 
+function slim(m: NormalizedMarket): NormalizedMarket {
+  return {
+    venue: m.venue,
+    venue_market_id: m.venue_market_id,
+    event_id: m.event_id,
+    event_question: m.event_question,
+    question: m.question,
+    outcomes: m.outcomes.map((o) => ({
+      label: o.label,
+      probability: Math.round(o.probability * 1000) / 1000,
+      bid: o.bid,
+      ask: o.ask,
+      tradable_outcome_id: o.tradable_outcome_id,
+    })),
+    liquidity_usd: m.liquidity_usd,
+    volume_usd: m.volume_usd,
+    open_interest_usd: m.open_interest_usd,
+    ends_at: m.ends_at,
+    resolution_status: m.resolution_status,
+    dispute_open_until: m.dispute_open_until,
+    settlement_risk: m.settlement_risk,
+    settlement_risk_reason: m.settlement_risk_reason,
+    uma_resolution_statuses: m.uma_resolution_statuses,
+    uma_bond: m.uma_bond,
+    uma_reward: m.uma_reward,
+    custom_liveness_seconds: m.custom_liveness_seconds,
+    chain: m.chain,
+    collateral_token: m.collateral_token,
+    restricted_jurisdictions: m.restricted_jurisdictions,
+    is_parlay: m.is_parlay,
+    is_auto_generated: m.is_auto_generated,
+    url: m.url,
+  };
+}
+
 export const ADAPTERS: VenueAdapter[] = [
   new PolymarketAdapter(),
   new KalshiAdapter(),
@@ -123,7 +158,7 @@ export async function discover(
         venue,
         has_match: false,
         match_count: sameVenueMarkets.length,
-        adjacent_matches: sameVenueMarkets.slice(0, 3),
+        adjacent_matches: sameVenueMarkets.slice(0, 3).map(slim),
         unavailable_reason: error
           ? `venue API error: ${error}`
           : blocked
@@ -138,7 +173,7 @@ export async function discover(
         venue,
         has_match: false,
         match_count: best.adjacent.length + 1,
-        adjacent_matches: [best.market, ...best.adjacent],
+        adjacent_matches: [best.market, ...best.adjacent].map(slim),
         unavailable_reason: "blocked by jurisdiction",
         jurisdiction_note: note,
       };
@@ -147,8 +182,8 @@ export async function discover(
       venue,
       has_match: true,
       match_count: best.adjacent.length + 1,
-      best_match: best.market,
-      adjacent_matches: best.adjacent,
+      best_match: slim(best.market),
+      adjacent_matches: best.adjacent.map(slim),
       jurisdiction_note: note,
     };
   });
