@@ -1,0 +1,15 @@
+name = "allbets-mcp"
+main = "src/worker.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers-default URL: https://allbets-mcp.<your-subdomain>.workers.dev
+# Custom domain (uncomment after first deploy and DNS confirmed):
+# routes = [
+#   { pattern = "allbets.dev/mcp/*", zone_name = "allbets.dev" },
+#   { pattern = "allbets.dev/mcp", zone_name = "allbets.dev" },
+#   { pattern = "allbets.dev/health", zone_name = "allbets.dev" }
+# ]
+
+[observability]
+enabled = true

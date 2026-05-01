@@ -1,28 +1,9 @@
 import type { NormalizedMarket } from "./schema.js";
 
 const STOPWORDS = new Set([
-  "the",
-  "a",
-  "an",
-  "is",
-  "are",
-  "will",
-  "be",
-  "to",
-  "in",
-  "on",
-  "of",
-  "for",
-  "by",
-  "and",
-  "or",
-  "vs",
-  "before",
-  "after",
-  "this",
-  "that",
-  "with",
-  "at",
+  "the","a","an","is","are","will","be","to","in","on","of","for","by","and",
+  "or","vs","before","after","this","that","with","at","by","when","does","do",
+  "did","get","its","it","s","t",
 ]);
 
 function tokenize(s: string): string[] {
@@ -30,7 +11,7 @@ function tokenize(s: string): string[] {
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter((t) => t && !STOPWORDS.has(t));
+    .filter((t) => t.length > 1 && !STOPWORDS.has(t));
 }
 
 function jaccard(a: string[], b: string[]): number {
@@ -42,67 +23,56 @@ function jaccard(a: string[], b: string[]): number {
   return union === 0 ? 0 : intersection / union;
 }
 
-export interface MatchedGroup {
-  canonical_question: string;
-  members: NormalizedMarket[];
-  match_score: number;
+export interface VenueBest {
+  market: NormalizedMarket;
+  score: number;
+  adjacent: NormalizedMarket[];
 }
 
-export function groupByQuestion(
+export function bestMatchPerVenue(
+  hypothesis: string,
   markets: NormalizedMarket[],
-  threshold = 0.45,
-): MatchedGroup[] {
-  const tokenized = markets.map((m) => ({ market: m, tokens: tokenize(m.question) }));
-  const groups: MatchedGroup[] = [];
-
-  for (const item of tokenized) {
-    let placed = false;
-    for (const group of groups) {
-      const repTokens = tokenize(group.canonical_question);
-      const score = jaccard(repTokens, item.tokens);
-      if (score >= threshold) {
-        group.members.push(item.market);
-        group.match_score = Math.min(group.match_score, score);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      groups.push({
-        canonical_question: item.market.question,
-        members: [item.market],
-        match_score: 1,
-      });
-    }
+  threshold = 0.25,
+): Map<NormalizedMarket["venue"], VenueBest> {
+  const queryTokens = tokenize(hypothesis);
+  const byVenue = new Map<NormalizedMarket["venue"], NormalizedMarket[]>();
+  for (const m of markets) {
+    const list = byVenue.get(m.venue) ?? [];
+    list.push(m);
+    byVenue.set(m.venue, list);
   }
 
-  return groups.filter((g) => g.members.length >= 2);
+  const result = new Map<NormalizedMarket["venue"], VenueBest>();
+  for (const [venue, list] of byVenue) {
+    const scored = list.map((m) => {
+      const qScore = jaccard(queryTokens, tokenize(m.question));
+      const eScore = m.event_question
+        ? jaccard(queryTokens, tokenize(m.event_question))
+        : 0;
+      return { market: m, score: Math.max(qScore, eScore) };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    if (!top || top.score < threshold) continue;
+    const adjacent = scored
+      .slice(1)
+      .filter((s) => s.score >= threshold * 0.6)
+      .slice(0, 3)
+      .map((s) => s.market);
+    result.set(venue, { market: top.market, score: top.score, adjacent });
+  }
+  return result;
 }
 
-export function consensusFromGroup(group: MatchedGroup): {
-  consensus_yes: number | null;
-  liquidity_weighted_yes: number | null;
-  spread: number | null;
-} {
-  const yesProbs: number[] = [];
-  const weighted: { p: number; w: number }[] = [];
-
-  for (const m of group.members) {
-    const yes = m.outcomes.find((o) => /yes/i.test(o.label)) ?? m.outcomes[0];
-    if (!yes) continue;
-    yesProbs.push(yes.probability);
-    const w = m.liquidity_usd ?? m.volume_usd ?? 1;
-    weighted.push({ p: yes.probability, w });
+export function eventGroups(
+  markets: NormalizedMarket[],
+): Map<string, NormalizedMarket[]> {
+  const groups = new Map<string, NormalizedMarket[]>();
+  for (const m of markets) {
+    const key = m.event_id ?? m.venue_market_id;
+    const list = groups.get(key) ?? [];
+    list.push(m);
+    groups.set(key, list);
   }
-
-  if (yesProbs.length === 0) {
-    return { consensus_yes: null, liquidity_weighted_yes: null, spread: null };
-  }
-
-  const consensus = yesProbs.reduce((s, p) => s + p, 0) / yesProbs.length;
-  const wTotal = weighted.reduce((s, x) => s + x.w, 0);
-  const lwYes = wTotal > 0 ? weighted.reduce((s, x) => s + x.p * x.w, 0) / wTotal : null;
-  const spread = Math.max(...yesProbs) - Math.min(...yesProbs);
-
-  return { consensus_yes: consensus, liquidity_weighted_yes: lwYes, spread };
+  return groups;
 }

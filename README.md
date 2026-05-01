@@ -1,95 +1,115 @@
 # allbets
 
-One MCP server, three prediction markets. Polymarket + Kalshi + Limitless behind a single normalized tool surface for AI agents.
+**Cross-venue prediction-market discovery for AI agents.** Tell your agent your hypothesis, allbets tells you what's tradable across Polymarket, Kalshi, and Limitless — with liquidity, jurisdiction notes, and a recommended venue.
 
-> Built at [Agents Day Lisbon 2026-05-01](https://luma.com/) by Sean Tierney + Jax (Sean's AI assistant).
+> Live MCP endpoint: `https://allbets.dev/mcp` (or current Workers URL `https://allbets-mcp.cold-shape-7f3f.workers.dev/mcp`)
+> Built at [Agents Day Lisbon 2026-05-01](https://luma.com/) by Sean Tierney + Jax.
 
 ## Why
 
-Every existing prediction-market MCP is single-venue. An agent that wants to compare odds across exchanges has to load 3 different MCPs, each with overlapping but inconsistent schemas. allbets normalizes that — one query fans out, results come back in a unified shape, and the agent sees a clean cross-venue view.
+The three biggest prediction-market venues — Kalshi ($9.5B Jan 2026 volume), Polymarket ($3.3B), Limitless ($789M) — are mutually almost-non-overlapping in their top markets. Their identities, settlement models, and jurisdictional gates are all different. An agent that wants to "bet on the Fed cutting rates in June" today has to:
 
-Three target venues (top by January 2026 real-money volume):
+1. Know which venues even list that question
+2. Know which it can legally trade on (Kalshi US-only, Polymarket geo-blocked from US, Limitless on Base)
+3. Compare liquidity / probabilities across the venues that DO list it
+4. Get a direct trade-here URL
 
-| Venue | Volume Jan 2026 | Auth | Sandbox |
-|---|---|---|---|
-| Kalshi | $9.5B | RSA-PSS signed | demo-api.kalshi.co |
-| Polymarket | $3.3B | EIP-712 wallet sigs (writes); none for reads | Polygon testnet |
-| Limitless | $789M | Wallet (writes); none for reads | - |
+allbets does steps 1-4 in a single tool call.
 
 ## Tools
 
-- **`pm_search(query, limit_per_venue?, venues?)`** — fan out a free-text query across all three venues, return normalized markets
-- **`pm_quote(query, limit_per_venue?, group_threshold?)`** — fan out + fuzzy-group same-question contracts cross-venue, return consensus + liquidity-weighted probability
-- **`pm_arb(query, min_spread_pct?)`** — find cross-venue arbitrage opportunities (same question, different prices)
+- **`pm_discover(hypothesis, jurisdiction?)`** — primary tool. Fan out across 3 venues, return what each has on your hypothesis + jurisdiction notes + recommended trade-here URL. Use this first.
+- **`pm_search(query, venues?)`** — raw cross-venue search. Less curated than `pm_discover`.
+- **`pm_list_active(venues?)`** — most active markets per venue, for browsing.
 
-All reads are public-API only — no keys needed. Trading is out of scope (every existing MCP already does that).
+All reads are public-API only. **Trading is intentionally not in scope** — identity, custody, and funding fragmentation across the three venues makes a unified write-API a fool's errand. allbets is the *information* primitive; trade execution stays with the agent's existing per-venue tools.
 
 ## Normalized schema
 
+Each market comes back in a single shape that includes everything an agent needs to make a decision:
+
 ```ts
 type NormalizedMarket = {
-  venue: "polymarket" | "kalshi" | "limitless";
+  venue: "polymarket" | "polymarket-qcex" | "kalshi" | "limitless";
   venue_market_id: string;
+  event_id?: string;            // for grouping multi-outcome events
+  event_question?: string;
   question: string;
-  description?: string;
   outcomes: Array<{
     label: string;
-    probability: number;  // 0..1
-    bid?: number;
-    ask?: number;
+    probability: number;        // 0..1
+    bid?: number; ask?: number;
+    tradable_outcome_id?: string;  // CLOB token / position ID for downstream trading
   }>;
   liquidity_usd?: number;
   volume_usd?: number;
-  open_interest_usd?: number;
   ends_at?: string;
-  url: string;
-  raw?: unknown;          // full venue response for power users
+  resolution_status: "open" | "closed_pending_resolution" | "in_dispute" | "settled" | "unknown";
+  dispute_open_until?: string;  // UMA dispute window for Polymarket
+  chain: "polygon" | "base" | "ethereum" | "centralized";
+  collateral_token: string;     // USDC, USDC.e, USD
+  restricted_jurisdictions?: string[];  // ["US"] for Polymarket-international, ["non-US"] for Kalshi
+  is_parlay?: boolean;          // Kalshi KXMVE multi-leg
+  is_auto_generated?: boolean;  // Limitless lumy bot-generated
+  url: string;                  // trade-here URL
+  raw?: unknown;
 };
 ```
 
-## Status
+## Architecture
 
-Hackathon-quality scaffold. Not production. Read-only. Adapters call public endpoints; venue API shapes will drift and need maintenance.
+- **Cloudflare Workers** runtime (no cold starts, multi-region by default)
+- **Hono** for routing
+- **Streamable HTTP MCP transport** (`POST /mcp` with JSON-RPC 2.0)
+- Three adapters (`src/adapters/`) each implement `searchMarkets`, `getMarket`, `listActive` — plain classes, no framework lock-in
+- Matcher (`src/matcher.ts`) groups by `event_id` first, then fuzzy-matches per-outcome questions within events (token-Jaccard with stopwords)
+- `Promise.allSettled` fan-out so one venue's outage doesn't break the whole call
 
-- [x] TypeScript MCP server skeleton (stdio transport)
-- [x] Polymarket Gamma adapter (public read)
-- [x] Kalshi public market list adapter
-- [x] Limitless public adapter
-- [x] Token-Jaccard fuzzy event matcher
-- [x] `pm_search`, `pm_quote`, `pm_arb` tools
-- [ ] LLM-judge pass over fuzzy matches (currently token-overlap only)
-- [ ] Discord bot wrapper (planned — same MCP, embeddable interface)
-- [ ] Caching / rate-limit handling
-- [ ] Trading / write surface (intentionally not scoped)
-
-## Install + run
+## Quick start (local dev)
 
 ```bash
 npm install
-npm run build
-npm start
+npm run dev        # wrangler dev
 ```
 
-Or with Claude Desktop, add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Then connect Claude Desktop or any MCP client to `http://localhost:8787/mcp`.
+
+## Deploy
+
+```bash
+export CLOUDFLARE_API_TOKEN=...
+npm run deploy
+```
+
+## Connect from Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "allbets": {
-      "command": "node",
-      "args": ["/absolute/path/to/allbets/dist/index.js"]
+      "transport": {
+        "type": "streamable-http",
+        "url": "https://allbets.dev/mcp"
+      }
     }
   }
 }
 ```
 
+## Deliberate non-features
+
+- **Trading.** MCP protocol is wrong-shaped for it (long-lived state, on-chain confirmation, idempotency, multi-user secrets). Use Polymarket Agents, Olas Polystrat, or shaanmajid/prediction-mcp for execution.
+- **Cross-venue arbitrage.** Capital is non-fungible across these venues (USD vs USDC-on-Polygon vs USDC-on-Base vs Kalshi USD). Spreads exist but are not actually executable for most agents without weeks of cross-platform funding lead time. We surface prices; we do not promise arb.
+- **Manifold Markets.** Play money — distorts liquidity-weighted comparisons against real-money venues.
+
 ## Roadmap
 
-1. **v0.1** — read-only fan-out, fuzzy match, consensus quote, arb finder
-2. **v0.2** — LLM event matcher (Claude/Haiku judge over candidate pairs), caching
-3. **v0.3** — Discord/Slack bot wrapper that calls allbets and posts consensus inline
-4. **v0.4** — webhook surface for news → market alerts
-5. **vNever** — trading. Use Polymarket Agents, Olas Polystrat, or any of the 5+ existing Kalshi bots if you want to trade.
+- **v0.1.1** (this release) — discovery framing, Workers + Hono deploy, Marc's bug fixes (Kalshi field-name drift, KXMVE parlay filter, Limitless lumy filter, event-aware matcher, resolution_status + chain + jurisdiction fields)
+- **v0.2** — LLM-judge fuzzy matcher (Haiku over candidate pairs), Polymarket-QCEX adapter (when API docs land)
+- **v0.3** — Discord/Slack bot wrapper using `pm_discover` as the backend
+- **v0.4** — News→market alerts (open-source Adjacent News alternative)
 
 ## License
 
