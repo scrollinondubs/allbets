@@ -4,7 +4,7 @@ export const LANDING_HTML = `<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>allbets — cross-venue prediction-market discovery for AI agents</title>
-  <meta name="description" content="One MCP endpoint. Three real-money prediction-market venues. Tell your agent your hypothesis, allbets tells you what is tradable, where the liquidity is, and what to watch for at settlement." />
+  <meta name="description" content="One MCP. Three real-money prediction-market venues. Tell your agent your hypothesis, allbets tells you what is tradable, where the liquidity is, and what to watch for at settlement." />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -400,7 +400,7 @@ export const LANDING_HTML = `<!doctype html>
   <main>
     <div class="topbar">
       <div class="brand">allbets</div>
-      <div class="status">live · cf workers · v0.1.1</div>
+      <div class="status">live · cf workers · v0.1.9</div>
     </div>
 
     <section class="hero">
@@ -457,7 +457,7 @@ export const LANDING_HTML = `<!doctype html>
     <section>
       <h2><span class="num">02</span>What allbets does</h2>
       <p>
-        One MCP endpoint over <strong>Streamable HTTP</strong>. Six tools. Read-only. Public APIs only.
+        One MCP endpoint over <strong>Streamable HTTP</strong>. Nine tools. Read-only. Public APIs only.
       </p>
 
       <div class="feature-row">
@@ -469,8 +469,20 @@ export const LANDING_HTML = `<!doctype html>
         <div class="body">Hand it your blog or personal-site URL. Scrapes the page, extracts your topics + stances, and returns up to 10 ranked prediction-market bets across all three venues that match what you actually care about. Stateless &mdash; nothing persisted.</div>
       </div>
       <div class="feature-row">
+        <div class="label">pm_signal</div>
+        <div class="body">Live X (Twitter) signal for a market or hypothesis, via Grok&apos;s first-party <code>x_search</code>. Returns top engaged posts in the last 1&ndash;72h with citations and a one-line narrative. Use after pm_history to answer <em>why did this market just move?</em> &mdash; pm_history shows what; pm_signal shows what was being said. Opt-in, ~$0.05 per call.</div>
+      </div>
+      <div class="feature-row">
         <div class="label">pm_quote</div>
         <div class="body">Single-market deep-dive with the <em>settlement-risk badge</em>. Pass a Polymarket / Kalshi / Limitless URL or a <code>venue:id</code> shorthand. Returns the full normalized market plus UMA dispute window, bond, and resolution status. The trust shape behind the price.</div>
+      </div>
+      <div class="feature-row">
+        <div class="label">pm_history</div>
+        <div class="body">Price + volume time series for a single market. Same <code>market</code> argument as pm_quote. Returns OHLC stats and a 24&ndash;60 point series across 1h&ndash;30d ranges (auto-tuned to stay LLM-digestible). pm_quote shows the snapshot; this shows the trajectory. Polymarket and Kalshi supported.</div>
+      </div>
+      <div class="feature-row">
+        <div class="label">pm_ev</div>
+        <div class="body">Positive-EV evaluator <em>and intra-market arbitrage detector</em>. Pass a market and (optionally) your probability estimate and bankroll. Returns market-implied probability, your edge in points, EV per $1 at three honesty levels (raw, after taker fees, after settlement-risk discount), Kelly sizing, and a discrete recommendation: <code>INTRA_MARKET_ARB | BET_YES | BET_NO | EDGE_TOO_THIN | PASS</code>. INTRA_MARKET_ARB fires when ask_yes + ask_no + fees &lt; $1 &mdash; risk-free regardless of outcome.</div>
       </div>
       <div class="feature-row">
         <div class="label">pm_disputes_active</div>

@@ -147,6 +147,11 @@ function toNormalized(m: KalshiMarket, eventTitle?: string): NormalizedMarket {
     restricted_jurisdictions: ["non-US"],
     is_parlay: parlay,
     is_auto_generated: false,
+    // Kalshi's per-market fee schedule isn't exposed on the markets endpoint;
+    // their public fee schedule (https://kalshi.com/docs/fees) tops out at
+    // ~3.5% taker for most contracts. Flat default until per-market data lands.
+    taker_fee_bps: 350,
+    maker_fee_bps: 0,
     url: `https://kalshi.com/markets/${m.event_ticker ?? m.ticker}/${m.ticker}`,
     raw: m,
   };

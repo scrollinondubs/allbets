@@ -1,6 +1,6 @@
 {
   "name": "@allbets/mcp",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "description": "Cross-venue prediction-market discovery MCP. Tells your agent what bet exists across Polymarket, Kalshi, and Limitless — and where to place it.",
   "type": "module",
   "main": "src/index.ts",

@@ -7,6 +7,7 @@ import { decorateWithImages } from "./imagen.js";
 import { grokSearchX } from "./grok.js";
 import { HistoryRangeSchema } from "./schema.js";
 import type { NormalizedMarket } from "./schema.js";
+import { evaluateMarket, DEFAULT_KELLY_FRACTION } from "./ev.js";
 
 interface WorkersAIBinding {
   run(model: string, input: Record<string, unknown>): Promise<unknown>;
@@ -84,9 +85,17 @@ export const HistoryInputSchema = z.object({
   range: HistoryRangeSchema.default("24h"),
 });
 
+<<<<<<< feat/v0.1.9-pm-ev
+export const EvInputSchema = z.object({
+  market: z.string().min(1),
+  p_yes: z.number().min(0).max(1).optional(),
+  bankroll_usd: z.number().nonnegative().optional(),
+  kelly_fraction: z.number().min(0).max(1).default(DEFAULT_KELLY_FRACTION),
+=======
 export const SignalInputSchema = z.object({
   query: z.string().min(2),
   hours_back: z.union([z.literal(1), z.literal(6), z.literal(24), z.literal(72)]).default(24),
+>>>>>>> init
 });
 
 export const TOOL_DEFS = [
@@ -177,6 +186,34 @@ export const TOOL_DEFS = [
       properties: {
         limit: { type: "number", default: 20 },
       },
+    },
+  },
+  {
+    name: "pm_ev",
+    description:
+      "Positive-EV evaluator + intra-market arbitrage detector for a single market. Pass `market` (URL or 'venue:id', same as pm_quote) and optionally `p_yes` (your probability estimate, 0..1) and `bankroll_usd`. Returns market-implied probability, your edge in points, EV per $1 at three honesty levels (raw, after taker fees, after settlement-risk discount), Kelly fraction sizing (default quarter-Kelly), and a discrete recommendation: INTRA_MARKET_ARB | BET_YES | BET_NO | EDGE_TOO_THIN | PASS. INTRA_MARKET_ARB is surfaced when ask_yes + ask_no + fees < $1 (settlement-risk-immune since both legs settle on the same event); the `intra_market_arb` field has the arb math + caveats. Decision support, not execution — agent goes to the trade-here URL to act. Kelly assumes your `p_yes` is well-calibrated; use a smaller `kelly_fraction` if uncertain.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        market: {
+          type: "string",
+          description: "Market URL or 'venue:id' shorthand (same forms pm_quote accepts).",
+        },
+        p_yes: {
+          type: "number",
+          description: "Your probability estimate of the YES outcome, 0 to 1. Omit to evaluate at the market's own implied price (zero-edge baseline).",
+        },
+        bankroll_usd: {
+          type: "number",
+          description: "Total bankroll for Kelly sizing. If provided, the response includes a suggested stake. Omitted = no stake suggestion.",
+        },
+        kelly_fraction: {
+          type: "number",
+          default: 0.25,
+          description: "Multiplier on the full Kelly fraction. 0.25 = quarter-Kelly (practitioner default, absorbs estimation error). 1.0 = full Kelly (max growth, max ruin risk).",
+        },
+      },
+      required: ["market"],
     },
   },
   {
@@ -456,6 +493,36 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
       note: "Polymarket UMA-flagged markets only. Kalshi and Limitless settle deterministically and have no analogous dispute risk.",
       markets: decorateMarkets(markets, affiliateConfig),
     });
+  }
+  if (name === "pm_ev") {
+    const { market, p_yes, bankroll_usd, kelly_fraction } = EvInputSchema.parse(args);
+    const ref = resolveMarketRef(market);
+    if (!ref) {
+      return err({
+        error: "could_not_parse_market_ref",
+        input: market,
+        accepted_forms: [
+          "venue:id (e.g. 'polymarket:540816', 'kalshi:KXFEDMTG-26JUN-T5')",
+          "polymarket.com URL",
+          "kalshi.com URL",
+          "limitless.exchange URL",
+        ],
+      });
+    }
+    const adapter = ADAPTERS.find((a) => a.venue === ref.venue);
+    if (!adapter) return err({ error: "unknown_venue", venue: ref.venue });
+    const m = await adapter.getMarket(ref.id);
+    if (!m) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
+    // Decorate first so the report carries the affiliate URL — agents click
+    // through from the EV recommendation to the trade-here URL.
+    const decorated = decorateMarket(m, affiliateConfig);
+    const report = evaluateMarket({
+      market: decorated,
+      user_p_yes: p_yes,
+      bankroll_usd,
+      kelly_fraction,
+    });
+    return ok(report);
   }
   if (name === "pm_search") {
     const { query, limit_per_venue, venues } = SearchInputSchema.parse(args);
