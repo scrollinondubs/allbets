@@ -1,0 +1,16 @@
+name = "allbets-mcp"
+main = "src/worker.ts"
+compatibility_date = "2026-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Custom Domains auto-provision DNS + TLS cert (vs. plain routes which require manual DNS)
+routes = [
+  { pattern = "allbets.dev", custom_domain = true },
+]
+
+# Keep the workers.dev URL alive for fallback / debugging
+workers_dev = true
+preview_urls = true
+
+[observability]
+enabled = true

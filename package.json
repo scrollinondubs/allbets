@@ -1,17 +1,15 @@
 {
   "name": "@allbets/mcp",
-  "version": "0.1.0",
-  "description": "Unified MCP server for prediction markets — Kalshi, Polymarket, Limitless behind one normalized tool surface.",
+  "version": "0.1.1",
+  "description": "Cross-venue prediction-market discovery MCP. Tells your agent what bet exists across Polymarket, Kalshi, and Limitless — and where to place it.",
   "type": "module",
-  "main": "dist/index.js",
-  "bin": {
-    "allbets-mcp": "dist/index.js"
-  },
+  "main": "src/index.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc"
   },
   "keywords": [
     "mcp",
@@ -20,19 +18,21 @@
     "polymarket",
     "kalshi",
     "limitless",
-    "agent"
+    "agent",
+    "cloudflare-workers"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "hono": "^4.6.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "@cloudflare/workers-types": "^4.20251015.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
   }
 }
