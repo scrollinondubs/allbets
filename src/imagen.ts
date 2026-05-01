@@ -7,9 +7,9 @@ export interface ImagenResult {
 }
 
 const OPENAI_BASE = "https://api.openai.com/v1";
-const MODEL = "gpt-image-1";
+const MODEL = "dall-e-3";
 const SIZE = "1024x1024";
-const TIMEOUT_MS = 25000;
+const TIMEOUT_MS = 90000;
 
 function buildPrompt(market: NormalizedMarket): string {
   const yesProb =
@@ -49,6 +49,7 @@ export async function generateMarketImage(
         prompt,
         n: 1,
         size: SIZE,
+        response_format: "url",
       }),
       signal: ctrl.signal,
     });
@@ -62,11 +63,19 @@ export async function generateMarketImage(
     const json = (await res.json()) as {
       data?: Array<{ url?: string; b64_json?: string }>;
     };
-    const url = json.data?.[0]?.url;
-    if (!url) {
-      return { image_prompt: prompt, warning: "openai response missing data[0].url" };
+    const datum = json.data?.[0];
+    if (datum?.url) return { image_url: datum.url, image_prompt: prompt };
+    if (datum?.b64_json) {
+      // fallback for image models that ignore response_format and always return b64
+      return {
+        image_url: `data:image/png;base64,${datum.b64_json}`,
+        image_prompt: prompt,
+      };
     }
-    return { image_url: url, image_prompt: prompt };
+    return {
+      image_prompt: prompt,
+      warning: "openai response missing data[0].url and data[0].b64_json",
+    };
   } catch (err) {
     return {
       image_prompt: prompt,

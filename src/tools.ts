@@ -4,6 +4,7 @@ import { PolymarketAdapter } from "./adapters/polymarket.js";
 import { recommendFromUrl } from "./recommend.js";
 import { decorateMarket, decorateMarkets, type AffiliateConfig } from "./affiliate.js";
 import { decorateWithImages } from "./imagen.js";
+import { grokSearchX } from "./grok.js";
 import { HistoryRangeSchema } from "./schema.js";
 import type { NormalizedMarket } from "./schema.js";
 import { evaluateMarket, DEFAULT_KELLY_FRACTION } from "./ev.js";
@@ -22,6 +23,7 @@ interface ToolEnv {
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
   OPENAI_API_KEY?: string;
+  XAI_API_KEY?: string;
   POLYMARKET_REF_CODE?: string;
   KALSHI_REF_CODE?: string;
   LIMITLESS_REF_CODE?: string;
@@ -83,11 +85,17 @@ export const HistoryInputSchema = z.object({
   range: HistoryRangeSchema.default("24h"),
 });
 
+<<<<<<< feat/v0.1.9-pm-ev
 export const EvInputSchema = z.object({
   market: z.string().min(1),
   p_yes: z.number().min(0).max(1).optional(),
   bankroll_usd: z.number().nonnegative().optional(),
   kelly_fraction: z.number().min(0).max(1).default(DEFAULT_KELLY_FRACTION),
+=======
+export const SignalInputSchema = z.object({
+  query: z.string().min(2),
+  hours_back: z.union([z.literal(1), z.literal(6), z.literal(24), z.literal(72)]).default(24),
+>>>>>>> init
 });
 
 export const TOOL_DEFS = [
@@ -114,7 +122,7 @@ export const TOOL_DEFS = [
   {
     name: "pm_quote",
     description:
-      "Single-market deep-dive. Pass a market URL (Polymarket / Kalshi / Limitless) or a 'venue:id' shorthand (e.g. 'polymarket:540816' or 'kalshi:KXFEDMTG-26JUN-T5'). Returns the fully-loaded normalized market including settlement risk badge (UMA dispute window, bond/reward, resolution status). Use this AFTER pm_discover to get the trust shape behind a price.",
+      "Single-market deep-dive. Pass a market URL (Polymarket / Kalshi / Limitless) or a 'venue:id' shorthand (e.g. 'polymarket:540816' or 'kalshi:KXFEDMTG-26JUN-T5'). Returns the fully-loaded normalized market including settlement risk badge (UMA dispute window, bond/reward, resolution status). Use this AFTER pm_discover to get the trust shape behind a price. Pass visual=true to attach an OpenAI-generated illustration to the response.",
     inputSchema: {
       type: "object",
       properties: {
@@ -122,6 +130,7 @@ export const TOOL_DEFS = [
           type: "string",
           description: "Market URL or 'venue:id' shorthand. Examples: 'https://polymarket.com/event/...', 'polymarket:540816', 'kalshi:KXFEDMTG-26JUN-T5', 'limitless:0x...'",
         },
+        visual: { type: "boolean", default: false, description: "If true, attach an OpenAI-generated editorial image to the market in the response. Requires OPENAI_API_KEY Worker secret. Costs ~$0.04 per image." },
       },
       required: ["market"],
     },
@@ -145,6 +154,27 @@ export const TOOL_DEFS = [
         },
       },
       required: ["market"],
+    },
+  },
+  {
+    name: "pm_signal",
+    description:
+      "Live X (Twitter) signal for a hypothesis or market topic, via Grok's first-party x_search. Returns the most-engaged recent posts with citations + a one-line narrative summary. Use this AFTER pm_history to answer 'why did this market just move?' — pm_history shows WHAT happened, pm_signal shows WHAT WAS BEING SAID. Polymarket / Kalshi / political / crypto markets all move on X chatter; this exposes that chatter directly. Latency 5-15s and cost ~$0.05/call so keep it opt-in, not in the hot path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Topic, hypothesis, or market question. Free-form natural language. Examples: 'Russia Ukraine ceasefire', 'Polymarket MegaETH FDV market', 'Powell rate cut June'.",
+        },
+        hours_back: {
+          type: "number",
+          enum: [1, 6, 24, 72],
+          default: 24,
+          description: "Time window for the X search. Smaller windows surface fresher signal but may return fewer posts.",
+        },
+      },
+      required: ["query"],
     },
   },
   {
@@ -189,7 +219,7 @@ export const TOOL_DEFS = [
   {
     name: "pm_recommend",
     description:
-      "Personalized recommendations via the RecommendAgent (Cloudflare Agents SDK Durable Object). Scrape a profile URL (blog, Substack, personal site), extract topics + stances via Workers AI, return up to N prediction-market bets across Polymarket / Kalshi / Limitless ranked by stance-alignment + liquidity. The agent persists call history in SQLite at the edge; no PII is stored.",
+      "Personalized recommendations via the RecommendAgent (Cloudflare Agents SDK Durable Object). Scrape a profile URL (blog, Substack, personal site), extract topics + stances via Workers AI, return up to N prediction-market bets across Polymarket / Kalshi / Limitless ranked by stance-alignment + liquidity. The agent persists call history in SQLite at the edge; no PII is stored. Pass visual=true to attach an OpenAI-generated illustration to each recommendation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -203,6 +233,7 @@ export const TOOL_DEFS = [
           default: "unknown",
         },
         max_recommendations: { type: "number", default: 10 },
+        visual: { type: "boolean", default: false, description: "If true, attach an OpenAI-generated editorial image to each recommended market. Requires OPENAI_API_KEY Worker secret. Costs ~$0.04 per image." },
       },
       required: ["profile_url"],
     },
@@ -216,6 +247,7 @@ export const TOOL_DEFS = [
         query: { type: "string" },
         limit_per_venue: { type: "number", default: 10 },
         venues: { type: "array", items: { enum: ["polymarket", "kalshi", "limitless"] } },
+        visual: { type: "boolean", default: false },
       },
       required: ["query"],
     },
@@ -228,6 +260,7 @@ export const TOOL_DEFS = [
       properties: {
         limit_per_venue: { type: "number", default: 10 },
         venues: { type: "array", items: { enum: ["polymarket", "kalshi", "limitless"] } },
+        visual: { type: "boolean", default: false },
       },
     },
   },
@@ -434,6 +467,17 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     }
     const result = await adapter.getHistory(ref.id, range);
     if (!result) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
+    return ok(result);
+  }
+  if (name === "pm_signal") {
+    const { query, hours_back } = SignalInputSchema.parse(args);
+    if (!env.XAI_API_KEY) {
+      return err({
+        error: "xai_api_key_not_configured",
+        detail: "Set XAI_API_KEY via `wrangler secret put XAI_API_KEY` (production) or .dev.vars (local). Get a key at https://console.x.ai.",
+      });
+    }
+    const result = await grokSearchX(query, hours_back, env.XAI_API_KEY);
     return ok(result);
   }
   if (name === "pm_disputes_active") {
