@@ -1,7 +1,19 @@
 import { z } from "zod";
 import { ADAPTERS, discover, fanOutSearch } from "./discovery.js";
 import { PolymarketAdapter } from "./adapters/polymarket.js";
+import { recommendFromUrl } from "./recommend.js";
 import type { NormalizedMarket } from "./schema.js";
+
+interface WorkersAIBinding {
+  run(model: string, input: Record<string, unknown>): Promise<unknown>;
+}
+
+interface ToolEnv {
+  FIRECRAWL_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
+  EXA_API_KEY?: string;
+  AI?: WorkersAIBinding;
+}
 
 export const VenueArgSchema = z
   .array(z.enum(["polymarket", "kalshi", "limitless"]))
@@ -30,6 +42,12 @@ export const QuoteInputSchema = z.object({
 
 export const DisputesActiveInputSchema = z.object({
   limit: z.number().int().positive().max(50).default(20),
+});
+
+export const RecommendInputSchema = z.object({
+  profile_url: z.string().url(),
+  jurisdiction: z.enum(["us", "non_us", "unknown"]).default("unknown"),
+  max_recommendations: z.number().int().positive().max(20).default(10),
 });
 
 export const TOOL_DEFS = [
@@ -76,6 +94,27 @@ export const TOOL_DEFS = [
       properties: {
         limit: { type: "number", default: 20 },
       },
+    },
+  },
+  {
+    name: "pm_recommend",
+    description:
+      "Personalized recommendations: scrape a profile URL (blog, Substack, personal site), extract topics + stances, then return up to N prediction-market bets across Polymarket / Kalshi / Limitless that match the person's interests. Ranked by stance-alignment + liquidity. Stateless — no URL or content persisted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        profile_url: {
+          type: "string",
+          description: "Public URL: blog post, Substack page, personal site, etc. Twitter / LinkedIn often blocked — public blogs work most reliably.",
+        },
+        jurisdiction: {
+          type: "string",
+          enum: ["us", "non_us", "unknown"],
+          default: "unknown",
+        },
+        max_recommendations: { type: "number", default: 10 },
+      },
+      required: ["profile_url"],
     },
   },
   {
@@ -145,10 +184,14 @@ function resolveMarketRef(input: string): { venue: NormalizedMarket["venue"]; id
   return null;
 }
 
-export async function runTool(name: string, args: unknown): Promise<unknown> {
+export async function runTool(name: string, args: unknown, env: ToolEnv = {}): Promise<unknown> {
   if (name === "pm_discover") {
     const { hypothesis, jurisdiction, limit_per_venue } = DiscoverInputSchema.parse(args);
     return discover(hypothesis, jurisdiction, limit_per_venue);
+  }
+  if (name === "pm_recommend") {
+    const { profile_url, jurisdiction, max_recommendations } = RecommendInputSchema.parse(args);
+    return recommendFromUrl(profile_url, jurisdiction, max_recommendations, env);
   }
   if (name === "pm_quote") {
     const { market } = QuoteInputSchema.parse(args);

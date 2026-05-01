@@ -457,12 +457,16 @@ export const LANDING_HTML = `<!doctype html>
     <section>
       <h2><span class="num">02</span>What allbets does</h2>
       <p>
-        One MCP endpoint over <strong>Streamable HTTP</strong>. Five tools. Read-only. Public APIs only. No keys at runtime.
+        One MCP endpoint over <strong>Streamable HTTP</strong>. Six tools. Read-only. Public APIs only.
       </p>
 
       <div class="feature-row">
         <div class="label">pm_discover</div>
         <div class="body">Hand it a hypothesis and a jurisdiction. Returns what each venue lists, the depth of liquidity, the resolution model, and a single recommended trade-here URL. The primary entry tool.</div>
+      </div>
+      <div class="feature-row">
+        <div class="label">pm_recommend</div>
+        <div class="body">Hand it your blog or personal-site URL. Scrapes the page, extracts your topics + stances, and returns up to 10 ranked prediction-market bets across all three venues that match what you actually care about. Stateless &mdash; nothing persisted.</div>
       </div>
       <div class="feature-row">
         <div class="label">pm_quote</div>
