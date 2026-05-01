@@ -37,7 +37,7 @@ export function wrapAffiliate(
 
   if (venue === "polymarket" || venue === "polymarket-qcex") {
     code = config.polymarket;
-    paramName = "ref";
+    paramName = "r"; // Polymarket uses ?r=<code> per their referral docs
   } else if (venue === "kalshi") {
     code = config.kalshi;
     paramName = "referral";
