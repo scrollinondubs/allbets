@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import { TOOL_DEFS, runTool } from "./tools.js";
 import { LANDING_HTML } from "./landing.js";
 
@@ -31,7 +32,7 @@ app.get("/", (c) =>
 app.get("/info", (c) =>
   c.json({
     name: "allbets-mcp",
-    version: "0.1.1",
+    version: "0.1.7",
     description:
       "Cross-venue prediction-market discovery. Tells your agent what bet exists across Polymarket, Kalshi, and Limitless and where to place it.",
     mcp_endpoint: "/mcp",
@@ -84,15 +85,22 @@ app.post("/mcp", async (c) => {
         const params = body.params ?? {};
         const name = params.name as string;
         const args = (params.arguments as Record<string, unknown>) ?? {};
-        const result = await runTool(name, args, c.env);
+        const { value, isError } = await runTool(name, args, c.env);
         return respond({
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+          isError,
         });
       }
       default:
         return fail(-32601, `Method not found: ${body.method}`);
     }
   } catch (err) {
+    // Per JSON-RPC 2.0: -32602 for invalid params (Zod validation), -32603 for
+    // internal errors. MCP clients (Claude Desktop, etc.) surface these
+    // distinctly to the agent so it can self-correct invalid arguments.
+    if (err instanceof z.ZodError) {
+      return fail(-32602, "Invalid params", err.errors);
+    }
     return fail(-32603, err instanceof Error ? err.message : String(err));
   }
 });

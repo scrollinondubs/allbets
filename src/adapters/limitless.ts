@@ -2,6 +2,11 @@ import type { VenueAdapter } from "./types.js";
 import type { NormalizedMarket, ResolutionStatus } from "../schema.js";
 
 const LIMITLESS_BASE = "https://api.limitless.exchange";
+const FETCH_TIMEOUT_MS = 8000;
+
+function timed(): RequestInit {
+  return { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) };
+}
 
 interface LimitlessMarket {
   address: string;
@@ -102,7 +107,7 @@ export class LimitlessAdapter implements VenueAdapter {
   readonly venue = "limitless" as const;
 
   async searchMarkets(query: string, limit = 10): Promise<NormalizedMarket[]> {
-    const res = await fetch(`${LIMITLESS_BASE}/markets/active`);
+    const res = await fetch(`${LIMITLESS_BASE}/markets/active`, timed());
     if (!res.ok) throw new Error(`limitless search failed: ${res.status}`);
     const list = unwrap(await res.json());
     const q = query.toLowerCase();
@@ -125,10 +130,10 @@ export class LimitlessAdapter implements VenueAdapter {
   async getMarket(venueMarketId: string): Promise<NormalizedMarket | null> {
     // Limitless markets endpoint accepts either address or slug
     const trimmed = venueMarketId.trim();
-    const res = await fetch(`${LIMITLESS_BASE}/markets/${encodeURIComponent(trimmed)}`);
+    const res = await fetch(`${LIMITLESS_BASE}/markets/${encodeURIComponent(trimmed)}`, timed());
     if (res.status === 404) {
       // try active list and match
-      const active = await fetch(`${LIMITLESS_BASE}/markets/active`);
+      const active = await fetch(`${LIMITLESS_BASE}/markets/active`, timed());
       if (!active.ok) return null;
       const list = unwrap(await active.json());
       const found = list.find(
@@ -142,7 +147,7 @@ export class LimitlessAdapter implements VenueAdapter {
   }
 
   async listActive(limit = 25): Promise<NormalizedMarket[]> {
-    const res = await fetch(`${LIMITLESS_BASE}/markets/active`);
+    const res = await fetch(`${LIMITLESS_BASE}/markets/active`, timed());
     if (!res.ok) throw new Error(`limitless listActive failed: ${res.status}`);
     const list = unwrap(await res.json());
     return list.slice(0, limit).map(toNormalized);

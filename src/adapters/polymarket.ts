@@ -6,6 +6,11 @@ import type {
 } from "../schema.js";
 
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
+const FETCH_TIMEOUT_MS = 8000;
+
+function timed(): RequestInit {
+  return { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) };
+}
 
 interface GammaEvent {
   id: string;
@@ -194,7 +199,7 @@ export class PolymarketAdapter implements VenueAdapter {
     url.searchParams.set("order", "volume24hr");
     url.searchParams.set("ascending", "false");
 
-    const res = await fetch(url);
+    const res = await fetch(url, timed());
     if (!res.ok) throw new Error(`polymarket search failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket[];
 
@@ -227,7 +232,7 @@ export class PolymarketAdapter implements VenueAdapter {
     const isNumericId = /^\d+$/.test(trimmed);
 
     if (isNumericId) {
-      const res = await fetch(`${GAMMA_BASE}/markets/${trimmed}`);
+      const res = await fetch(`${GAMMA_BASE}/markets/${trimmed}`, timed());
       if (res.status === 404) return null;
       if (!res.ok) throw new Error(`polymarket getMarket failed: ${res.status}`);
       const json = (await res.json()) as GammaMarket;
@@ -238,7 +243,7 @@ export class PolymarketAdapter implements VenueAdapter {
     const url = new URL(`${GAMMA_BASE}/markets`);
     url.searchParams.set("slug", trimmed);
     url.searchParams.set("limit", "1");
-    const res = await fetch(url);
+    const res = await fetch(url, timed());
     if (!res.ok) throw new Error(`polymarket getMarket-by-slug failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket[];
     if (Array.isArray(json) && json.length > 0) return toNormalized(json[0]!);
@@ -247,7 +252,7 @@ export class PolymarketAdapter implements VenueAdapter {
     const search = new URL(`${GAMMA_BASE}/markets`);
     search.searchParams.set("q", trimmed.replace(/-/g, " "));
     search.searchParams.set("limit", "1");
-    const sr = await fetch(search);
+    const sr = await fetch(search, timed());
     if (!sr.ok) return null;
     const sj = (await sr.json()) as GammaMarket[];
     if (Array.isArray(sj) && sj.length > 0) return toNormalized(sj[0]!);
@@ -263,7 +268,7 @@ export class PolymarketAdapter implements VenueAdapter {
     url.searchParams.set("order", "volume24hr");
     url.searchParams.set("ascending", "false");
 
-    const res = await fetch(url);
+    const res = await fetch(url, timed());
     if (!res.ok) throw new Error(`polymarket listActive failed: ${res.status}`);
     const json = (await res.json()) as GammaMarket[];
     return json.slice(0, limit).map(toNormalized);
@@ -276,7 +281,7 @@ export class PolymarketAdapter implements VenueAdapter {
       const url = new URL(`${GAMMA_BASE}/markets`);
       url.searchParams.set("limit", "100");
       url.searchParams.set("q", q);
-      const res = await fetch(url);
+      const res = await fetch(url, timed());
       if (!res.ok) continue;
       const json = (await res.json()) as GammaMarket[];
       for (const raw of json) {
