@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { TOOL_DEFS, runTool } from "./tools.js";
+import { LANDING_HTML } from "./landing.js";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -11,11 +12,17 @@ interface JsonRpcRequest {
 const app = new Hono();
 
 app.get("/", (c) =>
+  c.html(LANDING_HTML, 200, {
+    "cache-control": "public, max-age=60",
+  }),
+);
+
+app.get("/info", (c) =>
   c.json({
     name: "allbets-mcp",
     version: "0.1.1",
     description:
-      "Cross-venue prediction-market discovery. Tells your agent what bet exists across Polymarket, Kalshi, and Limitless — and where to place it.",
+      "Cross-venue prediction-market discovery. Tells your agent what bet exists across Polymarket, Kalshi, and Limitless and where to place it.",
     mcp_endpoint: "/mcp",
     tools: TOOL_DEFS.map((t) => t.name),
     docs: "https://github.com/scrollinondubs/allbets",
