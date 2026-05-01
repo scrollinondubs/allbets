@@ -68,6 +68,9 @@ export const NormalizedMarketSchema = z.object({
   is_parlay: z.boolean().optional(),
   is_auto_generated: z.boolean().optional(),
   url: z.string().url(),
+  raw_url: z.string().url().optional(),
+  is_affiliate_link: z.boolean().optional(),
+  affiliate_disclosure: z.string().optional(),
   raw: z.unknown().optional(),
 });
 

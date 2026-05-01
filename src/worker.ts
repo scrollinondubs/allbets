@@ -18,6 +18,9 @@ interface WorkerEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
+  POLYMARKET_REF_CODE?: string;
+  KALSHI_REF_CODE?: string;
+  LIMITLESS_REF_CODE?: string;
   AI?: WorkersAIBinding;
 }
 

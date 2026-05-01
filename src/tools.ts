@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ADAPTERS, discover, fanOutSearch } from "./discovery.js";
 import { PolymarketAdapter } from "./adapters/polymarket.js";
 import { recommendFromUrl } from "./recommend.js";
+import { decorateMarket, decorateMarkets, type AffiliateConfig } from "./affiliate.js";
 import type { NormalizedMarket } from "./schema.js";
 
 interface WorkersAIBinding {
@@ -12,7 +13,18 @@ interface ToolEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
+  POLYMARKET_REF_CODE?: string;
+  KALSHI_REF_CODE?: string;
+  LIMITLESS_REF_CODE?: string;
   AI?: WorkersAIBinding;
+}
+
+function affiliateConfigFromEnv(env: ToolEnv): AffiliateConfig {
+  return {
+    polymarket: env.POLYMARKET_REF_CODE,
+    kalshi: env.KALSHI_REF_CODE,
+    limitless: env.LIMITLESS_REF_CODE,
+  };
 }
 
 export const VenueArgSchema = z
@@ -195,14 +207,55 @@ export interface ToolResult {
 const ok = (value: unknown): ToolResult => ({ value });
 const err = (value: unknown): ToolResult => ({ value, isError: true });
 
+function decorateDiscoverReport(
+  report: Awaited<ReturnType<typeof discover>>,
+  config: AffiliateConfig,
+): Awaited<ReturnType<typeof discover>> {
+  return {
+    ...report,
+    per_venue: report.per_venue.map((v) => ({
+      ...v,
+      best_match: v.best_match ? decorateMarket(v.best_match, config) : v.best_match,
+      adjacent_matches: v.adjacent_matches
+        ? decorateMarkets(v.adjacent_matches, config)
+        : v.adjacent_matches,
+    })),
+    recommendation: report.recommendation.best_venue
+      ? {
+          ...report.recommendation,
+          trade_here_url: report.recommendation.trade_here_url
+            ? decorateMarket(
+                {
+                  venue: report.recommendation.best_venue,
+                  url: report.recommendation.trade_here_url,
+                } as NormalizedMarket,
+                config,
+              ).url
+            : report.recommendation.trade_here_url,
+        }
+      : report.recommendation,
+  };
+}
+
 export async function runTool(name: string, args: unknown, env: ToolEnv = {}): Promise<ToolResult> {
+  const affiliateConfig = affiliateConfigFromEnv(env);
+
   if (name === "pm_discover") {
     const { hypothesis, jurisdiction, limit_per_venue } = DiscoverInputSchema.parse(args);
-    return ok(await discover(hypothesis, jurisdiction, limit_per_venue));
+    const report = await discover(hypothesis, jurisdiction, limit_per_venue);
+    return ok(decorateDiscoverReport(report, affiliateConfig));
   }
   if (name === "pm_recommend") {
     const { profile_url, jurisdiction, max_recommendations } = RecommendInputSchema.parse(args);
-    return ok(await recommendFromUrl(profile_url, jurisdiction, max_recommendations, env));
+    const report = await recommendFromUrl(profile_url, jurisdiction, max_recommendations, env);
+    const decorated = {
+      ...report,
+      recommendations: report.recommendations.map((rec) => ({
+        ...rec,
+        market: decorateMarket(rec.market, affiliateConfig),
+      })),
+    };
+    return ok(decorated);
   }
   if (name === "pm_quote") {
     const { market } = QuoteInputSchema.parse(args);
@@ -223,7 +276,7 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     if (!adapter) return err({ error: "unknown_venue", venue: ref.venue });
     const m = await adapter.getMarket(ref.id);
     if (!m) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
-    return ok({ quote: m });
+    return ok({ quote: decorateMarket(m, affiliateConfig) });
   }
   if (name === "pm_disputes_active") {
     const { limit } = DisputesActiveInputSchema.parse(args);
@@ -236,13 +289,18 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     return ok({
       count: markets.length,
       note: "Polymarket UMA-flagged markets only. Kalshi and Limitless settle deterministically and have no analogous dispute risk.",
-      markets,
+      markets: decorateMarkets(markets, affiliateConfig),
     });
   }
   if (name === "pm_search") {
     const { query, limit_per_venue, venues } = SearchInputSchema.parse(args);
     const out = await fanOutSearch(query, limit_per_venue, venues);
-    return ok({ query, count: out.markets.length, errors: out.errors, markets: out.markets });
+    return ok({
+      query,
+      count: out.markets.length,
+      errors: out.errors,
+      markets: decorateMarkets(out.markets, affiliateConfig),
+    });
   }
   if (name === "pm_list_active") {
     const { limit_per_venue, venues } = ListActiveInputSchema.parse(args);
@@ -259,7 +317,7 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
       if (r.status === "fulfilled") markets.push(...r.value);
       else errors.push({ venue, error: String(r.reason) });
     });
-    return ok({ count: markets.length, errors, markets });
+    return ok({ count: markets.length, errors, markets: decorateMarkets(markets, affiliateConfig) });
   }
   throw new Error(`unknown tool: ${name}`);
 }
