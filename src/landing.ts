@@ -653,7 +653,7 @@ export const LANDING_HTML = `<!doctype html>
     </section>
 
     <footer>
-      <div>built at agents day lisbon · 2026-05-01 · marc johnson + sean tierney + jax</div>
+      <div>built at agents day lisbon · 2026-05-01 · <a href="https://marcjohnson.xyz" target="_blank" rel="noopener">marc johnson</a> + <a href="https://scrollinondubs.com" target="_blank" rel="noopener">sean tierney</a> + <a href="https://behalf.bot" target="_blank" rel="noopener">jax</a></div>
       <div>
         <a href="https://github.com/scrollinondubs/allbets" target="_blank" rel="noopener">github</a>
         &nbsp;·&nbsp;
