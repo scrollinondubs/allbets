@@ -359,7 +359,7 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
       decorated.per_venue.forEach((v) => {
         if (v.best_match) allMarkets.push(v.best_match);
       });
-      const { markets: withImages, warnings } = await decorateWithImages(allMarkets, env.OPENAI_API_KEY, true);
+      const { markets: withImages, warnings } = await decorateWithImages(allMarkets, env.OPENAI_API_KEY, true, env.AI);
       const imageByKey = new Map<string, NormalizedMarket>();
       withImages.forEach((m) => imageByKey.set(`${m.venue}:${m.venue_market_id}`, m));
       decorated = {
@@ -404,7 +404,7 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     }
     if (visual) {
       const markets = result.recommendations.map((r) => r.market);
-      const { markets: withImages, warnings } = await decorateWithImages(markets, env.OPENAI_API_KEY, true);
+      const { markets: withImages, warnings } = await decorateWithImages(markets, env.OPENAI_API_KEY, true, env.AI);
       result = {
         ...result,
         recommendations: result.recommendations.map((rec, i) => ({
@@ -438,7 +438,7 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     let decorated = decorateMarket(m, affiliateConfig);
     const warnings: string[] = [];
     if (visual) {
-      const result = await decorateWithImages([decorated], env.OPENAI_API_KEY, true);
+      const result = await decorateWithImages([decorated], env.OPENAI_API_KEY, true, env.AI);
       decorated = result.markets[0] ?? decorated;
       warnings.push(...result.warnings);
     }
