@@ -3,6 +3,7 @@ import { ADAPTERS, discover, fanOutSearch } from "./discovery.js";
 import { PolymarketAdapter } from "./adapters/polymarket.js";
 import { recommendFromUrl } from "./recommend.js";
 import { decorateMarket, decorateMarkets, type AffiliateConfig } from "./affiliate.js";
+import { grokSearchX } from "./grok.js";
 import type { NormalizedMarket } from "./schema.js";
 
 interface WorkersAIBinding {
@@ -18,6 +19,7 @@ interface ToolEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
+  XAI_API_KEY?: string;
   POLYMARKET_REF_CODE?: string;
   KALSHI_REF_CODE?: string;
   LIMITLESS_REF_CODE?: string;
@@ -66,6 +68,11 @@ export const RecommendInputSchema = z.object({
   profile_url: z.string().url(),
   jurisdiction: z.enum(["us", "non_us", "unknown"]).default("unknown"),
   max_recommendations: z.number().int().positive().max(20).default(10),
+});
+
+export const SignalInputSchema = z.object({
+  query: z.string().min(2),
+  hours_back: z.union([z.literal(1), z.literal(6), z.literal(24), z.literal(72)]).default(24),
 });
 
 export const TOOL_DEFS = [
@@ -133,6 +140,27 @@ export const TOOL_DEFS = [
         max_recommendations: { type: "number", default: 10 },
       },
       required: ["profile_url"],
+    },
+  },
+  {
+    name: "pm_signal",
+    description:
+      "Live X (Twitter) signal for a hypothesis or market topic, via Grok's first-party x_search. Returns the most-engaged recent posts with citations + a one-line narrative summary. Use this AFTER pm_history to answer 'why did this market just move?' — pm_history shows WHAT happened, pm_signal shows WHAT WAS BEING SAID. Polymarket / Kalshi / political / crypto markets all move on X chatter; this exposes that chatter directly. Latency 5-15s and cost ~$0.05/call so keep it opt-in, not in the hot path.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Topic, hypothesis, or market question. Free-form natural language. Examples: 'Russia Ukraine ceasefire', 'Polymarket MegaETH FDV market', 'Powell rate cut June'.",
+        },
+        hours_back: {
+          type: "number",
+          enum: [1, 6, 24, 72],
+          default: 24,
+          description: "Time window for the X search. Smaller windows surface fresher signal but may return fewer posts.",
+        },
+      },
+      required: ["query"],
     },
   },
   {
@@ -302,6 +330,17 @@ export async function runTool(name: string, args: unknown, env: ToolEnv = {}): P
     const m = await adapter.getMarket(ref.id);
     if (!m) return err({ error: "market_not_found", venue: ref.venue, id: ref.id });
     return ok({ quote: decorateMarket(m, affiliateConfig) });
+  }
+  if (name === "pm_signal") {
+    const { query, hours_back } = SignalInputSchema.parse(args);
+    if (!env.XAI_API_KEY) {
+      return err({
+        error: "xai_api_key_not_configured",
+        detail: "Set XAI_API_KEY via `wrangler secret put XAI_API_KEY` (production) or .dev.vars (local). Get a key at https://console.x.ai.",
+      });
+    }
+    const result = await grokSearchX(query, hours_back, env.XAI_API_KEY);
+    return ok(result);
   }
   if (name === "pm_disputes_active") {
     const { limit } = DisputesActiveInputSchema.parse(args);

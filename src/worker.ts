@@ -27,6 +27,7 @@ interface WorkerEnv {
   FIRECRAWL_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
   EXA_API_KEY?: string;
+  XAI_API_KEY?: string;
   POLYMARKET_REF_CODE?: string;
   KALSHI_REF_CODE?: string;
   LIMITLESS_REF_CODE?: string;
@@ -50,7 +51,7 @@ app.get("/", (c) =>
 app.get("/info", (c) =>
   c.json({
     name: "allbets-mcp",
-    version: "0.1.7",
+    version: "0.1.8",
     description:
       "Cross-venue prediction-market discovery. Tells your agent what bet exists across Polymarket, Kalshi, and Limitless and where to place it.",
     mcp_endpoint: "/mcp",
@@ -93,7 +94,7 @@ app.post("/mcp", async (c) => {
         return respond({
           protocolVersion: "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "allbets-mcp", version: "0.1.1" },
+          serverInfo: { name: "allbets-mcp", version: "0.1.8" },
         });
       case "ping":
         return respond({});
